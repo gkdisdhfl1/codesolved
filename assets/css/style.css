@@ -1,0 +1,46 @@
+.tier-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 45px;
+    height: 45px;
+    border-radius: 12px;
+    font-family: 'Outfit', 'Inter', sans-serif;
+    font-weight: 800;
+    color: #ffffff;
+    font-size: 1rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+}
+
+/* 각 티어별 영롱한 그라데이션 테두리 및 배경색 정의 */
+.tier-unranked { background: #8a8f9d;}
+.tier-iron { background: linear-gradient(135deg, #3a3f47 0%, #5c6370 100%); }
+.tier-bronze { background: linear-gradient(135deg, #703311 0%, #a0522d 100%); }
+.tier-silver { background: linear-gradient(135deg, #788896 0%, #b0bac5 100%); }
+.tier-gold { background: linear-gradient(135deg, #b08218 0%, #e5b83b 100%); }
+.tier-platinum { background: linear-gradient(135deg, #168069 0%, #2cb396 100%); }
+.tier-diamond { background: linear-gradient(135deg, #2b6aa6 0%, #57a3e4 100%); }
+
+/* 최상위 마스터 이상 티어 - 영롱한 네온 테두리 광휘 효과 추가 */
+.tier-master {
+    background: linear-gradient(135deg, #7b0099 0%, #d000ff 100%); 
+    box-shadow: 0 0 12px rgba(208, 0, 255, 0.6);
+}
+.tier-grandmaster {
+    background: linear-gradient(135deg, #990022 0%, #ff3366 100%); 
+    box-shadow: 0 0 12px rgba(255, 51, 102, 0.6);
+}
+.tier-challenger {
+    background: linear-gradient(135deg, #005f99 0%, #00d2ff 100%); 
+    box-shadow: 0 0 15px rgba(0, 210, 255, 0.8);
+    animation: pulseGlow 2s infinite alternate; /* 챌린저는 애니메이션 추가 */
+}
+
+/* 챌린저 전용 마이크로 글로우 애니메이션 */
+@keyframes pulseGlow {
+    from { box-shadow: 0 0 10px rgba(0, 210, 255, 0.5); }
+    to { box-shadow: 0 0 20px rgba(0, 210, 255, 0.9); }
+}
