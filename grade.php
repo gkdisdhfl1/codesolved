@@ -27,9 +27,24 @@
             throw new Exception("제출 정보를 찾을 수 없습니다.");
         }
 
-        // 상태를 채점 중으로 갱신
-        $updateStmt = $pdo->prepare("UPDATE submissions SET status = '채점 중' WHERE id = :id");
+        // 단일 쿼리를 통한 상태 갱신으로 레이스 컨디션 방지
+        // 상태가 '대기 중'일 때만 '채점 중'으로 변경
+        $updateStmt = $pdo->prepare("
+            UPDATE submissions
+            SET status = '채점 중'
+            WHERE id = :id AND status = '대기 중'
+        ");
         $updateStmt->execute(['id' => $submission_id]);
+
+        // 업데이트된 행의 개수가 0개라면 -> 다른 요처잉 이미 이 제출건을 '채점 중'으로 바꿨거나, 
+        // 이미 '정답/오답'으로 끝난 상태
+        if ($updateStmt->rowCount() === 0) {
+            echo json_encode([
+                'success' => false,
+                'message' => '이미 처리 중이거나 완료된 채점 요청임.'
+            ]);
+            exit;
+        }
 
         $problem_id = $submission['problem_id'];
         $code = $submission['code'];
@@ -117,12 +132,13 @@
                     $exec_duration = (int)((microtime(true) - $startTime) * 1000);
                     $max_exec_time = max($max_exec_time, $exec_duration);
 
-                    $output = trim(stream_get_contents($pipes[1]));
+                    // 최대 1MB 까지만 읽도록 제한하여 OOM 에러 방지
+                    $maxBytes = 1048576;
+                    $output = trim(stream_get_contents($pipes[1], $maxBytes));
+                    $error = trim(stream_get_contents($pipes[2], $maxBytes));
+
                     fclose($pipes[1]);
-                    
-                    $error = trim(stream_get_contents($pipes[2]));
                     fclose($pipes[2]);
-                    
                     proc_close($process);
 
                     // 리소스 회수를 먼저 완료한 뒤에 타임아웃 예외를 처리
@@ -160,7 +176,7 @@
             $correctSql = trim($submission['answer_query']);
 
             // 1. 해당 문제용 초기화 SQL 파일 경로 확인 (예: data/sql_init/4.sql)
-            $initSqlSourcePath = __DIR__ . '/data/sql_init' . $problem_id . '.sql';
+            $initSqlSourcePath = __DIR__ . '/data/sql_init/' . $problem_id . '.sql';
 
             if(empty($correctSql)) {
                 $status = '런타임 에러';
@@ -186,7 +202,7 @@
                 $tempSqlDirDocker = str_replace('\\', '/', $tempSqlDir);
 
                 // 5. 안전한 Docker SQLite3 실행 헬퍼 함수
-                $executeInDocker = function($queryFile) use ($tempSqlDirDocker) {
+                $executeInDocker = function($queryFile, $timeLimit) use ($tempSqlDirDocker) {
                     $descriptorspec = [
                         1 => ["pipe", "w"], // stdout
                         2 => ["pipe", "w"]  // stderr
@@ -201,11 +217,38 @@
                     $process = proc_open($dockerCmd, $descriptorspec, $pipes);
 
                     if (is_resource($process)) {
-                        $output = stream_get_contents($pipes[1]);
-                        $error = stream_get_contents($pipes[2]);
+                        $startTime = microtime(true);
+                        $timeout = ($timeLimit ? (float)$timeLimit : 2.0) + 1.0;
+                        $isTimeout = false;
+
+                        // 무거운 SQL 무한 연산 타임아웃 감시
+                        while (true) {
+                            $statusArr = proc_get_status($process);
+                            $runningTime = microtime(true) - $startTime;
+
+                            if (!$statusArr['running'])
+                                break;
+
+                            if ($runningTime > $timeout) {
+                                proc_terminate($process);
+                                $isTimeout = true;
+                                break;
+                            }
+                            usleep(10000);
+                        }
+
+                        // SQL 최대 1MB까지만 결과값 수신 (OOM 방지)
+                        $maxBytes = 1048576;
+                        $output = stream_get_contents($pipes[1], $maxBytes);
+                        $error = stream_get_contents($pipes[2], $maxBytes);
+
                         fclose($pipes[1]);
                         fclose($pipes[2]);
                         proc_close($process);
+
+                        if ($isTimeout) {
+                            return ['output' => '', 'error' => '시간 초과'];
+                        }
 
                         return ['output' => $output, 'error' => $error];
                     }
@@ -214,9 +257,9 @@
 
                 $startTime = microtime(true);
 
-                // 6. 정답 쿼리 및 유저 쿼리 각각 격리 환경에서 실행
-                $correctRes = $executeInDocker('correct_query.sql');
-                $userRes = $executeInDocker('user_query.sql');
+                // 6. 정답 쿼리 및 유저 쿼리 각각 격리 환경에서 실행 (스칼라 값은 clone 없이 복사 전달)
+                $correctRes = $executeInDocker('correct_query.sql', $submission['time_limit']);
+                $userRes = $executeInDocker('user_query.sql', $submission['time_limit']);
 
                 $exec_duration = (int)((microtime(true) - $startTime) * 1000);
                 $max_exec_time = max($max_exec_time, $exec_duration);
@@ -229,17 +272,22 @@
                     $correctArray = json_decode($correctRes['output'], true);
                     $userArray = json_decode($userRes['output'], true);
 
-                    if ($userArray === null && !empty($userRes['output'])) {
+                    if (json_last_error() !== JSON_ERROR_NONE && trim($userRes['output']) !== '') {
                         $status = '런타임 에러';
-                        $error_msg = "결과 포맷이 올바르지 않습니다.";
+                        $error_msg = "결과 포맷이 올바르지 않습니다. (JSON Parsing Error)";
                     } elseif ($userArray !== $correctArray) {
                         $status = '틀렸습니다';
                     }
                 }
 
-                // 8. 임시 디렉토리 정리
-                array_map('unlink', glob("$tempSqlDir/*.*"));
-                rmdir($tempSqlDir);
+                // 8. 임시 디렉토리 안전한 정리
+                $filesToDelete = glob("$tempSqlDir/*");
+                if ($filesToDelete !== false) {
+                    array_map('unlink', $filesToDelete);
+                }
+                if (is_dir($tempSqlDir)) {
+                    rmdir($tempSqlDir);
+                }
             }
         }
 

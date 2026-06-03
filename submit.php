@@ -11,7 +11,14 @@
     $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 4;
 
     // POST 데이터 받기
-    $input = json_decode(file_get_contents('php://input'), true);
+    $rawInput = json_decode(file_get_contents('php://input'), true);
+    $input = json_decode($rawInput, true);
+
+    // 디코딩 결과가 배열이 아닐 경우 즉시 차단
+    if (!is_array($input)) {
+        echo json_encode(['success' => false, 'message' => '잘못된 JSON 입력 포맷입니다.']);
+        exit;
+    }
 
     $problem_id = isset($input['problem_id']) ? (int)$input['problem_id'] : 0;
     $code = isset($input['code']) ? trim($input['code']) : '';
