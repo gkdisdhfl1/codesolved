@@ -25,6 +25,7 @@ CREATE TABLE problems (
     type ENUM('python', 'sql') NOT NULL,
     time_limit FLOAT DEFAULT 2.0, -- 초 단위 제한
     memory_limit INT DEFAULT 128, -- MB 단위 제한
+    answer_query TEXT DEFAULT NULL, -- sql 쿼리의
     create_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
