@@ -244,7 +244,7 @@ try {
                         if ($runningTime > $timeout) {
                             proc_terminate($process);
                             // SQL Docker 컨테이너 실제 kill
-                            shell_exec("docker kill " . escapeshellarg($containerName) . " >/dev/null 2>$1");
+                            shell_exec("docker kill " . escapeshellarg($containerName) . " >/dev/null 2>&1");
                             $isTimeout = true;
                             break;
                         }
@@ -278,7 +278,7 @@ try {
             $max_exec_time = max($max_exec_time, $exec_duration);
 
             // 7. 에러 및 결과 대조
-            if (!empty($userRes['error'])) {
+            if (!empty($correctRes['error'])) {
                 $status = '런타임 에러';
                 $error_msg = "시스템 에러: 정답 쿼리 실행 실패 = " . trim($correctRes['error']);
             } elseif (!empty($userRes['error'])) {
@@ -339,7 +339,7 @@ try {
             // FOR UPDATE를 통한 pessimistic lock
             // 다른 스레드가 이 유저의 row를 동시에 SELECT/UPDATE 하는 것을 차단하고 대기시킴
             $userStmt = $pdo->prepare("
-                    SELECT rating, streak, last_solved_date FROM users WHERE id = :uid FROM UPDATE
+                    SELECT rating, streak, last_solved_date FROM users WHERE id = :uid FOR UPDATE
                 ");
             $userStmt->execute(['uid' => $user_id]);
             $user = $userStmt->fetch();
@@ -393,14 +393,13 @@ try {
             $pdo->rollBack();
             throw $e;
         }
-
-        echo json_encode([
-            'success' => true,
-            'status' => $finalStatus,
-            'execution_time' => $max_exec_time,
-            'error' => $error_msg
-        ]);
     }
+    echo json_encode([
+        'success' => true,
+        'status' => $finalStatus,
+        'execution_time' => $max_exec_time,
+        'error' => $error_msg
+    ]);
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
