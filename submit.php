@@ -11,12 +11,10 @@
     $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 4;
 
     // POST 데이터 받기
-    $rawInput = json_decode(file_get_contents('php://input'), true);
-    $input = json_decode($rawInput, true);
+    $input = json_decode(file_get_contents('php://input'), true);
 
-    // 디코딩 결과가 배열이 아닐 경우 즉시 차단
     if (!is_array($input)) {
-        echo json_encode(['success' => false, 'message' => '잘못된 JSON 입력 포맷입니다.']);
+        echo json_encode(['success' => false, 'message' => '올바르지 않은 요청 형식입니다.']);
         exit;
     }
 
