@@ -1,5 +1,9 @@
 <?php
     // config/db.php
+
+    // 현재 실행 환경 설정
+    define('APP_ENV', 'local');
+
     $host = '127.0.0.1';
     $db = 'codesolved';
     $user = 'root';

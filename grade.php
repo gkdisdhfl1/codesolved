@@ -12,6 +12,10 @@ if ($submission_id <= 0) {
     exit;
 }
 
+// 찌꺼기 추적용 전역 배열 선언
+$tempFilesToCleanup = [];
+$tempDirsToCleanup = [];
+
 try {
     // 1. 제출 정보 및 문제 정보 조회
     $stmt = $pdo->prepare("
@@ -25,6 +29,29 @@ try {
 
     if (!$submission) {
         throw new Exception("제출 정보를 찾을 수 없습니다.");
+    }
+
+    // 로그인 세션 기반 소유권 검증
+    if (isset($_SESSION['user_id'])) {
+        $current_user_id = $_SESSION['user_id'];
+    } else if (defined('APP_ENV') && APP_ENV === 'local') {
+        $current_user_id = 4;
+    } else {
+        http_response_code(401);
+        echo json_encode([
+            'success' => false,
+            'message' => '로그인이 필요한 서비스입니다.'
+        ]);
+        exit;
+    }
+
+    if ($submission['user_id'] != $current_user_id) {
+        http_response_code(403); // forbidden
+        echo json_encode([
+            'success' => false,
+            'message' => '권한이 없습니다. 본인의 제출만 채점할 수 있습니다.'
+        ]);
+        exit;
     }
 
     // 단일 쿼리를 통한 상태 갱신으로 레이스 컨디션 방지
@@ -64,6 +91,7 @@ try {
             mkdir($tempDir, 0777, true);
         }
         $tempFile = $tempDir . "/temp_" . $submission_id . ".py";
+        $tempFilesToCleanup[] = $tempFile; // 쓰레기통 명부에 등록
         file_put_contents($tempFile, $code);
 
         $tcStmt = $pdo->prepare("SELECT * FROM test_cases WHERE problem_id = :pid");
@@ -114,7 +142,30 @@ try {
                 $timeout = ($submission['time_limit'] ? (float)$submission['time_limit'] : 2.0) + 1.0;
                 $isTimeout = false;
 
+                stream_set_blocking($pipes[2], 0);
+
+                $output = '';
+                $error = '';
+                $maxBytes = 1048576;
+
                 while (true) {
+                    // 1. 데드락 방지: 루프를 돌 때마다 파이프 버퍼를 지속적으로 퍼내기
+                    $outChunk = stream_get_contents($pipes[1]);
+                    if ($outChunk !== false) {
+                        $output .= $outChunk;
+                        // OCM 방지: 1MB 초과 시 즉시 잘라내기
+                        if (strlen($output) > $maxBytes)
+                                $output = substr($output, 0, $maxBytes);
+                    }
+
+                    $errChunk = stream_get_contents($pipes[2]);
+                    if ($errChunk !== false) {
+                        $error .= $errChunk;
+                        if (strlen($error) > $maxBytes)
+                            $error = substr($error, 0, $maxBytes);
+                    }
+
+                    // 2. 프로세스 상태 확인
                     $statusArr = proc_get_status($process);
                     $runningTime = microtime(true) - $startTime;
 
@@ -133,18 +184,30 @@ try {
                     usleep(10000);
                 }
 
-                // 실행 시간 계산
-                $exec_duration = (int)((microtime(true) - $startTime) * 1000);
-                $max_exec_time = max($max_exec_time, $exec_duration);
+                // 3. 루프 종료 후 찰나의 순간에 버퍼에 남은 잔여 데이터 최종 수거
+                $outChunk = stream_get_contents($pipes[1]);
+                if ($outChunk !== false)
+                    $output .= $outChunk;
+                $errChunk = stream_get_contents($pipes[2]);
+                if ($errChunk !== false)
+                    $error .= $errChunk;
 
-                // 최대 1MB 까지만 읽도록 제한하여 OOM 에러 방지
-                $maxBytes = 1048576;
-                $output = trim(stream_get_contents($pipes[1], $maxBytes));
-                $error = trim(stream_get_contents($pipes[2], $maxBytes));
+                // 최종 OOM 방지 및 공백 제거
+                if (strlen($output) > $maxBytes)
+                    $output = substr($output, 0, $maxBytes);
+                if (strlen($error) > $maxBytes)
+                    $error = substr($error, 0, $maxBytes);
+
+                $output = trim($output);
+                $error = trim($error);
 
                 fclose($pipes[1]);
                 fclose($pipes[2]);
                 proc_close($process);
+
+                // 실행 시간 계산
+                $exec_duration = (int)((microtime(true) - $startTime) * 1000);
+                $max_exec_time = max($max_exec_time, $exec_duration);
 
                 // 리소스 회수를 먼저 완료한 뒤에 타임아웃 예외를 처리
                 if ($isTimeout) {
@@ -195,13 +258,14 @@ try {
             if (!is_dir($tempSqlDir)) {
                 mkdir($tempSqlDir, 0777, true);
             }
+            $tempDirsToCleanup[] = $tempSqlDir; // 쓰레기통 명부에 등록
 
             // 3. 서버에 저장된 초기화 파일을 임시 디렉토리의 init.sql로 복사
             copy($initSqlSourcePath, $tempSqlDir . '/init.sql');
 
             // 4. 유저 쿼리와 정답 쿼리를 각각 파일로 저장 (JSON 포맷으로 출력하도록 설정)
-            file_put_contents($tempSqlDir . '/user_query.sql', ".mode json\n" . $code . ";");
-            file_put_contents($tempSqlDir . '/correct_query.sql', ".mode json\n" . $correctSql . ";");
+            file_put_contents($tempSqlDir . '/user_query.sql', $code);
+            file_put_contents($tempSqlDir . '/correct_query.sql', $correctSql);
 
             // Docker 내부에서 PDO로 SQL을 안전하게 채점할 PHP Runner 파일 임시 폴더로 복사
             $runnerSourcePath = __DIR__ . '/includes/sqlite_runner.php';
@@ -211,7 +275,7 @@ try {
             $tempSqlDirDocker = str_replace('\\', '/', $tempSqlDir);
 
             // 5. 안전한 Docker SQLite3 실행 헬퍼 함수
-            $executeInDocker = function ($queryFile, $timeLimit) use ($tempSqlDirDocker, $submission_id) {
+            $executeInDocker = function ($queryFile, $timeLimit) use ($tempSqlDirDocker, $submission_id, $submission) {
                 $descriptorspec = [
                     1 => ["pipe", "w"], // stdout
                     2 => ["pipe", "w"]  // stderr
@@ -220,9 +284,12 @@ try {
                 // SQL 컨테이너에도 고유한 이름 부여
                 $containerName = "sandbox_sql_" . $submission_id . "_" . bin2hex(random_bytes(4));
 
+                $memLimit = $submission['memory_limit'] ? (int)$submission['memory_limit'] : 128;
+
                 $dockerCmd = sprintf(
                     'docker run --rm -i --name "%s" --net none -v "%s:/sandbox:ro" php:8-cli-alpine php /sandbox/sqlite_runner.php "%s"',
                     $containerName,
+                    $memLimit,
                     $tempSqlDirDocker,
                     $queryFile
                 );
@@ -234,7 +301,29 @@ try {
                     $timeout = ($timeLimit ? (float)$timeLimit : 2.0) + 1.0;
                     $isTimeout = false;
 
+                    // 논블로킹 모드 전환
+                    stream_set_blocking($pipes[1], 0);
+                    stream_set_blocking($pipes[2], 0);
+
+                    $output = '';
+                    $error = '';
+                    $maxBytes = 1048576;
+
                     while (true) {
+                        $outChunk = stream_get_contents($pipes[1]);
+                        if ($outChunk !== false) {
+                            $output .= $outChunk;
+                            if (strlen($output) > $maxBytes)
+                                $output = substr($output, 0, $maxBytes);
+                        }
+
+                        $errChunk = stream_get_contents($pipes[2]);
+                        if ($errChunk !== false) {
+                            $error .= $errChunk;
+                            if (strlen($error) > $maxBytes)
+                                $error = substr($error, 0, $maxBytes);
+                        }
+
                         $statusArr = proc_get_status($process);
                         $runningTime = microtime(true) - $startTime;
 
@@ -251,10 +340,22 @@ try {
                         usleep(10000);
                     }
 
-                    // SQL 최대 1MB까지만 결과값 수신 (OOM 방지)
-                    $maxBytes = 1048576;
-                    $output = stream_get_contents($pipes[1], $maxBytes);
-                    $error = stream_get_contents($pipes[2], $maxBytes);
+                    // 잔여 버퍼 최종 수거
+                    $outChunk = stream_get_contents($pipes[1]);
+                    if ($outChunk !== false)
+                        $output .= $outChunk;
+                    $errChunk = stream_get_contents($pipes[2]);
+                    if ($errChunk !== false)
+                        $error .= $errChunk;
+
+                    // 최종 OOM 방지 및 공백 제거
+                    if (strlen($output) > $maxBytes)
+                        $output = substr($output, 0, $maxBytes);
+                    if (strlen($error) > $maxBytes)
+                        $error = substr($error, 0, $maxBytes);
+
+                    $output = trim($output);
+                    $error = trim($error);
 
                     fclose($pipes[1]);
                     fclose($pipes[2]);
@@ -345,10 +446,10 @@ try {
             $user = $userStmt->fetch();
 
             if ($user) {
-                // 락이 걸린 안전한 상태에서 중복 여부 재확인 (id < :sid)
+                // 락이 걸린 안전한 상태에서 중복 여부 재확인 (id <!= :sid)
                 $dupStmt = $pdo->prepare("
                         SELECT COUNT(*) FROM submissions
-                        WHERE user_id = :uid AND problem_id = :pid AND status = '맞았습니다' AND id < :sid
+                        WHERE user_id = :uid AND problem_id = :pid AND status = '맞았습니다' AND id != :sid
                     ");
                 $dupStmt->execute(['uid' => $user_id, 'pid' => $problem_id, 'sid' => $submission_id]);
 
@@ -401,5 +502,26 @@ try {
         'error' => $error_msg
     ]);
 } catch (Exception $e) {
+    // 에러 발생 시 트랜잭션이 열려있다면 롤백
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+} finally {
+    // 1. 단일 파일들 청소
+    foreach ($tempFilesToCleanup as $file) {
+        if (file_exists($file)) {
+            unlink($file);
+        }
+    }
+    // 2. 디렉토리들 청소
+    foreach ($tempDirsToCleanup as $dir) {
+        if (is_dir($dir)) {
+            $files = glob("$dir/*");
+            if ($files !== false) {
+                array_map('unlink', $files);
+            }
+            rmdir($dir);
+        }
+    }
 }

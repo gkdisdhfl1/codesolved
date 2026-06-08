@@ -5,10 +5,19 @@
 
     require_once __DIR__ . '/config/db.php';
 
-    // 임시 유저 세션이 없으면 우선 4번 더미 유저(Newbie)로 간주.
-    // (로그인 전 임시 테스트용)
-
-    $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 4;
+    // 로그인 세션 검증 및 환경 변수 기반 테스트 백도어 제어
+    if (isset($_SESSION['user_id'])) {
+        $user_id = $_SESSION['user_id'];
+    } elseif (defined('APP_ENV') && APP_ENV === 'local') {
+        $user_id = 4; // 로컬 개발 환경에서만 4번 더미 유저 적용
+    } else {
+        http_response_code(401); // 401 Unauthorized 상태 코드
+        echo json_encode([
+            'success' => false,
+            'message' => '로그인이 필요한 서비스입니다.'
+        ]);
+        exit;
+    }
 
     // POST 데이터 받기
     $input = json_decode(file_get_contents('php://input'), true);
