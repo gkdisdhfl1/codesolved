@@ -124,7 +124,7 @@ try {
                 --rm -i \
                 --name "%s" \
                 --net none \
-                --user nobody
+                --user nobody \
                 --memory="%dm" \
                 --cpus="1.0" -v \
                 "%s:/sandbox:ro" \
@@ -223,9 +223,9 @@ try {
                     break;
                 }
 
-                if (!empty($error)) {
+                if (isset($statusArr['exitcode']) && $statusArr['exitcode'] !== 0) {
                     $status = '런타임 에러';
-                    $error_msg = $error;
+                    $error_msg = $error ?: "Exit code: " . $statusArr['exitcode'];
                     break;
                 }
 
@@ -299,6 +299,7 @@ try {
                     --rm -i \
                     --name "%s" \
                     --net none \
+                    --user nobody \
                     --memory="%dm" \
                     --cpus="1.0" -v \
                     "%s:/sandbox:ro" \
@@ -493,6 +494,7 @@ try {
                     if ($dupStmt->fetchColumn() == 0) {
                         // 중복이 아닐 때만 안전하게 계산 및 업데이트
                         $ratingGain = $difficulty * 20;
+                        $newRating += $ratingGain;
                     }
                 }
 
