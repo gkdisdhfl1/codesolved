@@ -6,11 +6,7 @@
     require_once __DIR__ . '/config/db.php';
 
     // 로그인 세션 검증 및 환경 변수 기반 테스트 백도어 제어
-    if (isset($_SESSION['user_id'])) {
-        $user_id = $_SESSION['user_id'];
-    } elseif (defined('APP_ENV') && APP_ENV === 'local') {
-        $user_id = 4; // 로컬 개발 환경에서만 4번 더미 유저 적용
-    } else {
+    if (!isset($_SESSION['user_id'])) {
         http_response_code(401); // 401 Unauthorized 상태 코드
         echo json_encode([
             'success' => false,
@@ -18,6 +14,9 @@
         ]);
         exit;
     }
+
+    // 오직 인증된 세션에서만 유저 ID를 가져옴
+    $user_id = $_SESSION['user_id'];
 
     // POST 데이터 받기
     $input = json_decode(file_get_contents('php://input'), true);

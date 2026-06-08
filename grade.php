@@ -32,11 +32,7 @@ try {
     }
 
     // 로그인 세션 기반 소유권 검증
-    if (isset($_SESSION['user_id'])) {
-        $current_user_id = $_SESSION['user_id'];
-    } else if (defined('APP_ENV') && APP_ENV === 'local') {
-        $current_user_id = 4;
-    } else {
+    if (!isset($_SESSION['user_id'])) {
         http_response_code(401);
         echo json_encode([
             'success' => false,
@@ -44,6 +40,8 @@ try {
         ]);
         exit;
     }
+
+    $current_user_id = $_SESSION['user_id'];
 
     if ($submission['user_id'] != $current_user_id) {
         http_response_code(403); // forbidden
@@ -287,7 +285,7 @@ try {
                 $memLimit = $submission['memory_limit'] ? (int)$submission['memory_limit'] : 128;
 
                 $dockerCmd = sprintf(
-                    'docker run --rm -i --name "%s" --net none -v "%s:/sandbox:ro" php:8-cli-alpine php /sandbox/sqlite_runner.php "%s"',
+                    'docker run --rm -i --name "%s" --net none --memory="%dm" --cpus="1.0" -v "%s:/sandbox:ro" php:8-cli-alpine php /sandbox/sqlite_runner.php "%s"',
                     $containerName,
                     $memLimit,
                     $tempSqlDirDocker,
@@ -387,9 +385,14 @@ try {
                 $error_msg = trim($userRes['error']);
             } else {
                 $correctArray = json_decode($correctRes['output'], true);
+                $correctJsonError = json_last_error();
                 $userArray = json_decode($userRes['output'], true);
+                $userJsonError = json_last_error();
 
-                if (json_last_error() !== JSON_ERROR_NONE && trim($userRes['output']) !== '') {
+                if ($correctJsonError !== JSON_ERROR_NONE) {
+                    $status = '런타임 에러';
+                    $error_msg = "시스템 에러: 정답 쿼리 결과 포맷이 올바르지 않습니다.";
+                } elseif ($userJsonError !== JSON_ERROR_NONE && trim($userRes['output']) !== '') {
                     $status = '런타임 에러';
                     $error_msg = "결과 포맷이 올바르지 않습니다. (JSON Parsing Error)";
                 } elseif ($userArray !== $correctArray) {
@@ -457,6 +460,7 @@ try {
                     // 중복이 아닐 때만 안전하게 계산 및 업데이트
                     $ratingGain = $difficulty * 20;
                     $newRating = $user['rating'] + $ratingGain;
+                    date_default_timezone_set('Asia/Seoul');
                     $currentDate = date('Y-m-d');
                     $newStreak = $user['streak'];
 
@@ -501,7 +505,7 @@ try {
         'execution_time' => $max_exec_time,
         'error' => $error_msg
     ]);
-} catch (Exception $e) {
+} catch (Throwable $e) {
     // 에러 발생 시 트랜잭션이 열려있다면 롤백
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
