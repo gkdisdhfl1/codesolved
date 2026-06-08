@@ -442,12 +442,14 @@ try {
     elseif ($status === '런타임 에러')
         $finalStatus = '런타임 에러';
 
+    // 상태 업데이트와 정산 로직을 하나의 생명주기로 묶기
+    $pdo->beginTransaction();
     // 1. 제출 상태 업데이트는 트랜잭션 밖에서 즉시 반영
     $saveStmt = $pdo->prepare("
-            UPDATE submissions
-            SET status = :status, execution_time = :time, error_message = :err
-            WHERE id = :id
-        ");
+                UPDATE submissions
+                SET status = :status, execution_time = :time, error_message = :err
+                WHERE id = :id
+            ");
     $saveStmt->execute([
         'status' => $finalStatus,
         'time' => $max_exec_time,
@@ -455,88 +457,70 @@ try {
         'id' => $submission_id
     ]);
 
-    // 2. 경험치(레이팅) 및 스트릭 정산
     if ($finalStatus === '맞았습니다') {
-        try {
-            $pdo->beginTransaction();
 
-            // 이미 푼 문제인지 확인 및 기록
-            $insertSolved = $pdo->prepare("
+        // 이미 푼 문제인지 확인 및 기록
+        $insertSolved = $pdo->prepare("
                 INSERT IGNORE INTO solved_problems (user_id, problem_id) VALUES (:uid, :pid)
             ");
-            $insertSolved->execute([
-                'uid' => $user_id,
-                'pid' => $problem_id
-            ]);
-            $isFirstSolve = ($insertSolved->rowCount() === 1);
+        $insertSolved->execute([
+            'uid' => $user_id,
+            'pid' => $problem_id
+        ]);
+        $isFirstSolve = ($insertSolved->rowCount() === 1);
 
-            // 스트릭 및 경험치 계산을 위해 기존 데이터 조회가 필요하므로 FOR UPDATE로 해당 유저 행만 잠금
-            $userStmt = $pdo->prepare("
+        // 스트릭 및 경험치 계산을 위해 기존 데이터 조회가 필요하므로 FOR UPDATE로 해당 유저 행만 잠금
+        $userStmt = $pdo->prepare("
                 SELECT rating, streak, last_solved_date FROM users WHERE id = :uid FOR UPDATE
             ");
-            $userStmt->execute(['uid' => $user_id]);
-            $user = $userStmt->fetch();
+        $userStmt->execute(['uid' => $user_id]);
+        $user = $userStmt->fetch();
 
-            if ($user) {
-                $currentDate = (new DateTime('now', new DateTimeZone('Asia/Seoul')))->format('Y-m-d');
-                $newStreak = $user['streak'];
-                $newRating = $user['rating'];
+        if ($user) {
+            $currentDate = (new DateTime('now', new DateTimeZone('Asia/Seoul')))->format('Y-m-d');
+            $newStreak = $user['streak'];
+            $newRating = $user['rating'];
 
-                // 1. 경험치 정산 (최초 해결 시에만)
-                if ($isFirstSolve) {
-                    // 락이 걸린 안전한 상태에서 중복 여부 재확인 (id <!= :sid)
-                    $dupStmt = $pdo->prepare("
-                        SELECT COUNT(*) FROM submissions
-                        WHERE user_id = :uid AND problem_id = :pid AND status = '맞았습니다' AND id != :sid
-                    ");
-                    $dupStmt->execute(['uid' => $user_id, 'pid' => $problem_id, 'sid' => $submission_id]);
+            // 1. 경험치 정산 (최초 해결 시에만)
+            if ($isFirstSolve) {
+                $ratingGain = $difficulty * 20;
+                $newRating += $ratingGain;
+            }
 
-                    if ($dupStmt->fetchColumn() == 0) {
-                        // 중복이 아닐 때만 안전하게 계산 및 업데이트
-                        $ratingGain = $difficulty * 20;
-                        $newRating += $ratingGain;
-                    }
-                }
+            // 2. 스트릭 정산 (오늘 처음 문제를 맞춘 경우에만 스트릭 갱신)
+            if ($user['last_solved_date'] !== $currentDate) {
+                if ($user['last_solved_date'] === null) {
+                    $newStreak = 1;
+                } else {
+                    $datetime1 = new DateTime($user['last_solved_date']);
+                    $datetime2 = new DateTime($currentDate);
+                    $interval = $datetime1->diff($datetime2);
 
-                // 2. 스트릭 정산 (오늘 처음 문제를 맞춘 경우에만 스트릭 갱신)
-                if ($user['last_solved_date'] !== $currentDate) {
-                    if ($user['last_solved_date'] === null) {
-                        $newStreak = 1;
+                    if ($interval->days === 1) {
+                        $newStreak++;
                     } else {
-                        $datetime1 = new DateTime($user['last_solved_date']);
-                        $datetime2 = new DateTime($currentDate);
-                        $interval = $datetime1->diff($datetime2);
-
-                        if ($interval->days === 1) {
-                            $newStreak++;
-                        } else {
-                            $newStreak = 1;
-                        }
+                        $newStreak = 1;
                     }
                 }
+            }
 
-                $upUserStmt = $pdo->prepare("
+            $upUserStmt = $pdo->prepare("
                             UPDATE users
                             SET rating = :rating, streak =:streak, last_solved_date = :today
                             WHERE id = :uid
                         ");
-                $upUserStmt->execute([
-                    'rating' => $newRating,
-                    'streak' => $newStreak,
-                    'today' => $currentDate,
-                    'uid' => $user_id
-                ]);
-            }
-
-            // 정산 완료 및 락 해제
-            $pdo->commit();
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            throw $e;
+            $upUserStmt->execute([
+                'rating' => $newRating,
+                'streak' => $newStreak,
+                'today' => $currentDate,
+                'uid' => $user_id
+            ]);
         }
     }
+
+    // 3. 모든 작업이 정상적으로 완료되면 DB 확정
+    $pdo->commit();
+
     echo json_encode([
         'success' => true,
         'status' => $finalStatus,

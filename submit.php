@@ -36,6 +36,16 @@
     }
 
     try {
+        // 문제 존재 여부 및 유형 검증
+        $probStmt = $pdo->prepare("SELECT type FROM problems WHERE id = :id");
+        $probStmt->execute(['id' => $problem_id]);
+        $problem = $probStmt->fetch();
+
+        if (!$problem) {
+            echo json_encode(['success' => false, 'message' => '존재하지 않는 문제입니다.']);
+            exit;
+        }
+
         // 1. 제출 상태를 '대기 중'으로 DB에 삽입
         $stmt = $pdo->prepare("
             INSERT INTO submissions (user_id, problem_id, code, language, status)
