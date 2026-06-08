@@ -12,11 +12,23 @@ if ($submission_id <= 0) {
     exit;
 }
 
-// 찌꺼기 추적용 전역 배열 선언
+// 임시파일/폴더 추적용 전역 배열 선언
 $tempFilesToCleanup = [];
 $tempDirsToCleanup = [];
 
 try {
+    // 로그인 세션 기반 소유권 검증
+    if (!isset($_SESSION['user_id'])) {
+        http_response_code(401);
+        echo json_encode([
+            'success' => false,
+            'message' => '로그인이 필요한 서비스입니다.'
+        ]);
+        exit;
+    }
+
+    $current_user_id = $_SESSION['user_id'];
+
     // 1. 제출 정보 및 문제 정보 조회
     $stmt = $pdo->prepare("
             SELECT s.*, p.type as problem_type, p.difficulty, p.time_limit, p.memory_limit, p.answer_query
@@ -30,18 +42,6 @@ try {
     if (!$submission) {
         throw new Exception("제출 정보를 찾을 수 없습니다.");
     }
-
-    // 로그인 세션 기반 소유권 검증
-    if (!isset($_SESSION['user_id'])) {
-        http_response_code(401);
-        echo json_encode([
-            'success' => false,
-            'message' => '로그인이 필요한 서비스입니다.'
-        ]);
-        exit;
-    }
-
-    $current_user_id = $_SESSION['user_id'];
 
     if ($submission['user_id'] != $current_user_id) {
         http_response_code(403); // forbidden
@@ -120,7 +120,16 @@ try {
             $memLimit = $submission['memory_limit'] ? max(16, (int)$submission['memory_limit']) : 128;
 
             $dockerCmd = sprintf(
-                'docker run --rm -i --name "%s" --net none --memory="%dm" --cpus="1.0" -v "%s:/sandbox:ro" python:3.9-alpine python /sandbox/%s',
+                'docker run \
+                --rm -i \
+                --name "%s" \
+                --net none \
+                --user nobody
+                --memory="%dm" \
+                --cpus="1.0" -v \
+                "%s:/sandbox:ro" \
+                python:3.9-alpine python \
+                /sandbox/%s',
                 $containerName,
                 $memLimit,
                 $tempDirDocker,
@@ -286,7 +295,15 @@ try {
                 $memLimit = $submission['memory_limit'] ? max(16, (int)$submission['memory_limit']) : 128;
 
                 $dockerCmd = sprintf(
-                    'docker run --rm -i --name "%s" --net none --memory="%dm" --cpus="1.0" -v "%s:/sandbox:ro" php:8-cli-alpine php /sandbox/sqlite_runner.php "%s"',
+                    'docker run \
+                    --rm -i \
+                    --name "%s" \
+                    --net none \
+                    --memory="%dm" \
+                    --cpus="1.0" -v \
+                    "%s:/sandbox:ro" \
+                    php:8-cli-alpine php \
+                    /sandbox/sqlite_runner.php "%s"',
                     $containerName,
                     $memLimit,
                     $tempSqlDirDocker,
@@ -441,7 +458,7 @@ try {
         try {
             $pdo->beginTransaction();
 
-            // 이미 푼 문제라면 INSERT가 무시되고 rowCount()는 0을 반환함
+            // 이미 푼 문제인지 확인 및 기록
             $insertSolved = $pdo->prepare("
                 INSERT IGNORE INTO solved_problems (user_id, problem_id) VALUES (:uid, :pid)
             ");
@@ -449,17 +466,23 @@ try {
                 'uid' => $user_id,
                 'pid' => $problem_id
             ]);
+            $isFirstSolve = ($insertSolved->rowCount() === 1);
 
-            // 방금 최초로 이 문제를 풀었을 때만 경험치 지급 로직 실행
-            if ($insertSolved->rowCount() === 1) {
-                // 스트릭 계산을 위해서는 기존 데이터 조회가 필요하므로 FOR UPDATE로 해당 유저 행만 잠금
-                $userStmt = $pdo->prepare("
-                        SELECT rating, streak, last_solved_date FROM users WHERE id = :uid FOR UPDATE
-                    ");
-                $userStmt->execute(['uid' => $user_id]);
-                $user = $userStmt->fetch();
+            // 스트릭 및 경험치 계산을 위해 기존 데이터 조회가 필요하므로 FOR UPDATE로 해당 유저 행만 잠금
+            $userStmt = $pdo->prepare("
+                SELECT rating, streak, last_solved_date FROM users WHERE id = :uid FOR UPDATE
+            ");
+            $userStmt->execute(['uid' => $user_id]);
+            $user = $userStmt->fetch();
 
-                if ($user) {
+            if ($user) {
+                date_default_timezone_set('Asia/Seoul');
+                $currentDate = date('Y-m-d');
+                $newStreak = $user['streak'];
+                $newRating = $user['rating'];
+
+                // 1. 경험치 정산 (최초 해결 시에만)
+                if ($isFirstSolve) {
                     // 락이 걸린 안전한 상태에서 중복 여부 재확인 (id <!= :sid)
                     $dupStmt = $pdo->prepare("
                         SELECT COUNT(*) FROM submissions
@@ -470,39 +493,37 @@ try {
                     if ($dupStmt->fetchColumn() == 0) {
                         // 중복이 아닐 때만 안전하게 계산 및 업데이트
                         $ratingGain = $difficulty * 20;
-                        $newRating = $user['rating'] + $ratingGain;
+                    }
+                }
 
-                        date_default_timezone_set('Asia/Seoul');
-                        $currentDate = date('Y-m-d');
-                        $newStreak = $user['streak'];
+                // 2. 스트릭 정산 (오늘 처음 문제를 맞춘 경우에만 스트릭 갱신)
+                if ($user['last_solved_date'] !== $currentDate) {
+                    if ($user['last_solved_date'] === null) {
+                        $newStreak = 1;
+                    } else {
+                        $datetime1 = new DateTime($user['last_solved_date']);
+                        $datetime2 = new DateTime($currentDate);
+                        $interval = $datetime1->diff($datetime2);
 
-                        if ($user['last_solved_date'] === null) {
-                            $newStreak = 1;
+                        if ($interval->days === 1) {
+                            $newStreak++;
                         } else {
-                            $datetime1 = new DateTime($user['last_solved_date']);
-                            $datetime2 = new DateTime($currentDate);
-                            $interval = $datetime1->diff($datetime2);
-
-                            if ($interval->days === 1) {
-                                $newStreak++;
-                            } elseif ($interval->days > 1) {
-                                $newStreak = 1;
-                            }
+                            $newStreak = 1;
                         }
+                    }
+                }
 
-                        $upUserStmt = $pdo->prepare("
+                $upUserStmt = $pdo->prepare("
                             UPDATE users
                             SET rating = :rating, streak =:streak, last_solved_date = :today
                             WHERE id = :uid
                         ");
-                        $upUserStmt->execute([
-                            'rating' => $newRating,
-                            'streak' => $newStreak,
-                            'today' => $currentDate,
-                            'uid' => $user_id
-                        ]);
-                    }
-                }
+                $upUserStmt->execute([
+                    'rating' => $newRating,
+                    'streak' => $newStreak,
+                    'today' => $currentDate,
+                    'uid' => $user_id
+                ]);
             }
 
             // 정산 완료 및 락 해제
@@ -530,7 +551,7 @@ try {
     // 1. 단일 파일들 청소
     foreach ($tempFilesToCleanup as $file) {
         if (file_exists($file)) {
-            unlink($file);
+            @unlink($file);
         }
     }
     // 2. 디렉토리들 청소
@@ -538,9 +559,11 @@ try {
         if (is_dir($dir)) {
             $files = glob("$dir/*");
             if ($files !== false) {
-                array_map('unlink', $files);
+                foreach ($files as $f) {
+                    @unlink($f);
+                }
             }
-            rmdir($dir);
+            @rmdir($dir);
         }
     }
 }
