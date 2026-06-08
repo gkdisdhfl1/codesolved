@@ -120,16 +120,15 @@ try {
             $memLimit = $submission['memory_limit'] ? max(16, (int)$submission['memory_limit']) : 128;
 
             $dockerCmd = sprintf(
-                'docker run \
-                --rm -i \
-                --name "%s" \
-                --net none \
-                --user nobody \
-                --memory="%dm" \
-                --cpus="1.0" -v \
-                "%s:/sandbox:ro" \
-                python:3.9-alpine python \
-                /sandbox/%s',
+                'docker run --rm -i ' .
+                    '--name "%s" ' .
+                    '--net none ' .
+                    '--user nobody ' .
+                    '--memory="%dm" ' .
+                    '--cpus="1.0" ' .
+                    '-v "%s:/sandbox:ro" ' .
+                    'python:3.9-alpine ' .
+                    'python /sandbox/%s',
                 $containerName,
                 $memLimit,
                 $tempDirDocker,
@@ -295,16 +294,15 @@ try {
                 $memLimit = $submission['memory_limit'] ? max(16, (int)$submission['memory_limit']) : 128;
 
                 $dockerCmd = sprintf(
-                    'docker run \
-                    --rm -i \
-                    --name "%s" \
-                    --net none \
-                    --user nobody \
-                    --memory="%dm" \
-                    --cpus="1.0" -v \
-                    "%s:/sandbox:ro" \
-                    php:8-cli-alpine php \
-                    /sandbox/sqlite_runner.php "%s"',
+                    'docker run --rm -i ' .
+                        '--name "%s" ' .
+                        '--net none ' .
+                        '--user nobody ' .
+                        '--memory="%dm" ' .
+                        '--cpus="1.0" ' .
+                        '-v "%s:/sandbox:ro" ' .
+                        'php:8-cli-alpine ' .
+                        'php /sandbox/sqlite_runner.php "%s"',
                     $containerName,
                     $memLimit,
                     $tempSqlDirDocker,
@@ -428,6 +426,9 @@ try {
                 rmdir($tempSqlDir);
             }
         }
+    } else {
+        $status = '런타임 에러';
+        $error_msg = '지원하지 않는 문제 유형입니다.';
     }
 
     // ==========================================
@@ -477,8 +478,7 @@ try {
             $user = $userStmt->fetch();
 
             if ($user) {
-                date_default_timezone_set('Asia/Seoul');
-                $currentDate = date('Y-m-d');
+                $currentDate = (new DateTime('now', new DateTimeZone('Asia/Seoul')))->format('Y-m-d');
                 $newStreak = $user['streak'];
                 $newRating = $user['rating'];
 
@@ -548,7 +548,8 @@ try {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
-    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    error_log("Grading error: " . $e->getMessage());
+    echo json_encode(['success' => false, 'message' => '채점 중 내부 서버 에러가 발생했습니다.']);
 } finally {
     // 1. 단일 파일들 청소
     foreach ($tempFilesToCleanup as $file) {

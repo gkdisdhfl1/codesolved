@@ -56,7 +56,7 @@
             'submission_id' => $submission_id
         ]);
     } catch (Exception $e) {
+        error_log("Submission error: " . $e->getMessage());
         echo json_encode(['success' => false, 'message' => '제출 도중 에러가 발생했습니다.']);
-        // echo json_encode(['success' => false, 'message' => '제출 도중 에러가 발생했습니다: ' . $e->getMessage()]);
     }
 ?>
