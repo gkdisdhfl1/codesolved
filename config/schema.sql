@@ -29,7 +29,18 @@ CREATE TABLE problems (
     create_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. 테스트 케이스 테이블 생성
+-- 4. 푼 문제 테이블 생성
+CREATE TABLE IF NOT EXISTS solved_problems (
+    user_id INT NOT NULL,
+    problem_id INT NOT NULL,
+    solved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, problem_id),
+    Foreign Key (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    Foreign Key (problem_id) REFERENCES problems(id) ON DELETE CASCADE
+);
+
+
+-- 5. 테스트 케이스 테이블 생성
 CREATE TABLE test_cases (
     id INT AUTO_INCREMENT PRIMARY KEY,
     problem_id INT NOT NULL,
@@ -39,7 +50,7 @@ CREATE TABLE test_cases (
     Foreign Key (problem_id) REFERENCES problems(id) ON DELETE CASCADE
 );
 
--- 5. 제출 현황 테이블 생성
+-- 6. 제출 현황 테이블 생성
 CREATE TABLE submissions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -54,7 +65,7 @@ CREATE TABLE submissions (
     Foreign Key (problem_id) REFERENCES problems(id) ON DELETE CASCADE
 );
 
--- 6. 질문 및 토론 테이블 생성
+-- 7. 질문 및 토론 테이블 생성
 CREATE TABLE discussions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     problem_id INT NOT NULL,
@@ -66,7 +77,7 @@ CREATE TABLE discussions (
     Foreign Key (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- 7. 댓글 테이블 생성
+-- 8. 댓글 테이블 생성
 CREATE TABLE comments (
     id INT AUTO_INCREMENT PRIMARY KEY,
     discussion_id INT NOT NULL,
@@ -77,7 +88,7 @@ CREATE TABLE comments (
     Foreign Key (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- 8. [SQL 샌드박스용 테이블] 사원 테이블
+-- 9. [SQL 샌드박스용 테이블] 사원 테이블
 CREATE TABLE employees (
     id INT PRIMARY KEY,
     name VARCHAR(50) NOT NULL,

@@ -117,7 +117,7 @@ try {
             // Docker 컨테이너로 유저 코드 격리 실행
             // 사용 이미지: python:3.0=alpine
             $containerName = "sandbox_py_" . $submission_id . "_" . bin2hex(random_bytes(4));
-            $memLimit = $submission['memory_limit'] ? (int)$submission['memory_limit'] : 128;
+            $memLimit = $submission['memory_limit'] ? max(16, (int)$submission['memory_limit']) : 128;
 
             $dockerCmd = sprintf(
                 'docker run --rm -i --name "%s" --net none --memory="%dm" --cpus="1.0" -v "%s:/sandbox:ro" python:3.9-alpine python /sandbox/%s',
@@ -140,6 +140,7 @@ try {
                 $timeout = ($submission['time_limit'] ? (float)$submission['time_limit'] : 2.0) + 1.0;
                 $isTimeout = false;
 
+                stream_set_blocking($pipes[1], 0);
                 stream_set_blocking($pipes[2], 0);
 
                 $output = '';
@@ -153,7 +154,7 @@ try {
                         $output .= $outChunk;
                         // OCM 방지: 1MB 초과 시 즉시 잘라내기
                         if (strlen($output) > $maxBytes)
-                                $output = substr($output, 0, $maxBytes);
+                            $output = substr($output, 0, $maxBytes);
                     }
 
                     $errChunk = stream_get_contents($pipes[2]);
@@ -220,7 +221,7 @@ try {
                 }
 
                 if (str_replace("\r", "", $output) !== str_replace("\r", "", $expectedOutput)) {
-                    $status = '틀렸습니다.';
+                    $status = '틀렸습니다';
                     break;
                 }
             } else {
@@ -282,7 +283,7 @@ try {
                 // SQL 컨테이너에도 고유한 이름 부여
                 $containerName = "sandbox_sql_" . $submission_id . "_" . bin2hex(random_bytes(4));
 
-                $memLimit = $submission['memory_limit'] ? (int)$submission['memory_limit'] : 128;
+                $memLimit = $submission['memory_limit'] ? max(16, (int)$submission['memory_limit']) : 128;
 
                 $dockerCmd = sprintf(
                     'docker run --rm -i --name "%s" --net none --memory="%dm" --cpus="1.0" -v "%s:/sandbox:ro" php:8-cli-alpine php /sandbox/sqlite_runner.php "%s"',
@@ -440,62 +441,76 @@ try {
         try {
             $pdo->beginTransaction();
 
-            // FOR UPDATE를 통한 pessimistic lock
-            // 다른 스레드가 이 유저의 row를 동시에 SELECT/UPDATE 하는 것을 차단하고 대기시킴
-            $userStmt = $pdo->prepare("
-                    SELECT rating, streak, last_solved_date FROM users WHERE id = :uid FOR UPDATE
-                ");
-            $userStmt->execute(['uid' => $user_id]);
-            $user = $userStmt->fetch();
+            // 이미 푼 문제라면 INSERT가 무시되고 rowCount()는 0을 반환함
+            $insertSolved = $pdo->prepare("
+                INSERT IGNORE INTO solved_problems (user_id, problem_id) VALUES (:uid, :pid)
+            ");
+            $insertSolved->execute([
+                'uid' => $user_id,
+                'pid' => $problem_id
+            ]);
 
-            if ($user) {
-                // 락이 걸린 안전한 상태에서 중복 여부 재확인 (id <!= :sid)
-                $dupStmt = $pdo->prepare("
+            // 방금 최초로 이 문제를 풀었을 때만 경험치 지급 로직 실행
+            if ($insertSolved->rowCount() === 1) {
+                // 스트릭 계산을 위해서는 기존 데이터 조회가 필요하므로 FOR UPDATE로 해당 유저 행만 잠금
+                $userStmt = $pdo->prepare("
+                        SELECT rating, streak, last_solved_date FROM users WHERE id = :uid FOR UPDATE
+                    ");
+                $userStmt->execute(['uid' => $user_id]);
+                $user = $userStmt->fetch();
+
+                if ($user) {
+                    // 락이 걸린 안전한 상태에서 중복 여부 재확인 (id <!= :sid)
+                    $dupStmt = $pdo->prepare("
                         SELECT COUNT(*) FROM submissions
                         WHERE user_id = :uid AND problem_id = :pid AND status = '맞았습니다' AND id != :sid
                     ");
-                $dupStmt->execute(['uid' => $user_id, 'pid' => $problem_id, 'sid' => $submission_id]);
+                    $dupStmt->execute(['uid' => $user_id, 'pid' => $problem_id, 'sid' => $submission_id]);
 
-                if ($dupStmt->fetchColumn() == 0) {
-                    // 중복이 아닐 때만 안전하게 계산 및 업데이트
-                    $ratingGain = $difficulty * 20;
-                    $newRating = $user['rating'] + $ratingGain;
-                    date_default_timezone_set('Asia/Seoul');
-                    $currentDate = date('Y-m-d');
-                    $newStreak = $user['streak'];
+                    if ($dupStmt->fetchColumn() == 0) {
+                        // 중복이 아닐 때만 안전하게 계산 및 업데이트
+                        $ratingGain = $difficulty * 20;
+                        $newRating = $user['rating'] + $ratingGain;
 
-                    if ($user['last_solved_date'] === null) {
-                        $newStreak = 1;
-                    } else {
-                        $datetime1 = new DateTime($user['last_solved_date']);
-                        $datetime2 = new DateTime($currentDate);
-                        $interval = $datetime1->diff($datetime2);
+                        date_default_timezone_set('Asia/Seoul');
+                        $currentDate = date('Y-m-d');
+                        $newStreak = $user['streak'];
 
-                        if ($interval->days === 1) {
-                            $newStreak++;
-                        } elseif ($interval->days > 1) {
+                        if ($user['last_solved_date'] === null) {
                             $newStreak = 1;
-                        }
-                    }
+                        } else {
+                            $datetime1 = new DateTime($user['last_solved_date']);
+                            $datetime2 = new DateTime($currentDate);
+                            $interval = $datetime1->diff($datetime2);
 
-                    $upUserStmt = $pdo->prepare("
+                            if ($interval->days === 1) {
+                                $newStreak++;
+                            } elseif ($interval->days > 1) {
+                                $newStreak = 1;
+                            }
+                        }
+
+                        $upUserStmt = $pdo->prepare("
                             UPDATE users
                             SET rating = :rating, streak =:streak, last_solved_date = :today
                             WHERE id = :uid
                         ");
-                    $upUserStmt->execute([
-                        'rating' => $newRating,
-                        'streak' => $newStreak,
-                        'today' => $currentDate,
-                        'uid' => $user_id
-                    ]);
+                        $upUserStmt->execute([
+                            'rating' => $newRating,
+                            'streak' => $newStreak,
+                            'today' => $currentDate,
+                            'uid' => $user_id
+                        ]);
+                    }
                 }
             }
+
             // 정산 완료 및 락 해제
             $pdo->commit();
-        } catch (Exception $e) {
-            // 에러 발생 시 락 해제 및 롤백
-            $pdo->rollBack();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $e;
         }
     }
