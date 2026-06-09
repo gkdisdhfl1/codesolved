@@ -13,7 +13,8 @@ $stmt->execute(['id' => $problem_id]);
 $problem = $stmt->fetch();
 
 if (!$problem) {
-    die("❌ 존재하지 않는 문제입니다.");
+    echo "<script>alert('존재하지 않는 문제입니다.'); location.href='index.php';</script>";
+    exit;
 }
 ?>
 <!DOCTYPE html>
@@ -297,6 +298,13 @@ if (!$problem) {
         async function submitCode() {
             const submitBtn = document.getElementById('submit-btn');
             const consoleOut = document.getElementById('console-output');
+
+            // Monaco Editor가 아직 로드되지 않은 상태에서 제출을 막음
+            if (typeof editor === 'undefined' || !editor) {
+                alert("에디터 모듈을 불러오는 중입니다. 잠시만 기다려주세요.");
+                return;
+            }
+
             const code = editor.getValue();
             const language = document.getElementById('lang-select').value;
             const problemId = <?php echo $problem_id; ?>;
