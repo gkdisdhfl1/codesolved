@@ -45,6 +45,10 @@
             echo json_encode(['success' => false, 'message' => '존재하지 않는 문제입니다.']);
             exit;
         }
+        if ($problem['type'] !== $language) {
+            echo json_encode(['success' => false, 'message' => '문제 유형과 제출 언어가 일치하지 않습니다.']);
+            exit;
+        }
 
         // 1. 제출 상태를 '대기 중'으로 DB에 삽입
         $stmt = $pdo->prepare("

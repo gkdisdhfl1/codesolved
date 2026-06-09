@@ -18,6 +18,9 @@ if ($submission_id <= 0) {
 $tempFilesToCleanup = [];
 $tempDirsToCleanup = [];
 
+// 대한민국 시간(Asia/Seoul)으로 기본 시간대 일괄 설정
+date_default_timezone_set('Asia/Seoul');
+
 try {
     // 로그인 세션 기반 소유권 검증
     if (!isset($_SESSION['user_id'])) {
@@ -102,7 +105,7 @@ try {
 
     $tempFilesToCleanup = array_merge($tempFilesToCleanup, $result['temp_files']);
     $tempDirsToCleanup = array_merge($tempDirsToCleanup, $result['temp_dirs']);
-    
+
 
     // ==========================================
     // 최종 판정 및 경험치 정산
@@ -115,14 +118,12 @@ try {
     elseif ($status === '런타임 에러')
         $finalStatus = '런타임 에러';
 
-    // 상태 업데이트와 정산 로직을 하나의 생명주기로 묶기
-    $pdo->beginTransaction();
-    // 1. 제출 상태 업데이트는 트랜잭션 밖에서 즉시 반영
+    // 1. 제출 상태 업데이트는 즉시 반영 (트랜잭션 밖에서 실행)
     $saveStmt = $pdo->prepare("
-                UPDATE submissions
-                SET status = :status, execution_time = :time, error_message = :err
-                WHERE id = :id
-            ");
+    UPDATE submissions
+    SET status = :status, execution_time = :time, error_message = :err
+    WHERE id = :id
+    ");
     $saveStmt->execute([
         'status' => $finalStatus,
         'time' => $max_exec_time,
@@ -131,6 +132,7 @@ try {
     ]);
 
     if ($finalStatus === '맞았습니다') {
+        $pdo->beginTransaction();
 
         // 이미 푼 문제인지 확인 및 기록
         $insertSolved = $pdo->prepare("
@@ -150,7 +152,7 @@ try {
         $user = $userStmt->fetch();
 
         if ($user) {
-            $currentDate = (new DateTime('now', new DateTimeZone('Asia/Seoul')))->format('Y-m-d');
+            $currentDate = date('Y-m-d');
             $newStreak = $user['streak'];
             $newRating = $user['rating'];
 

@@ -81,7 +81,7 @@ class SqlGrader implements GraderInterface
             );
 
             $process = proc_open($dockerCmd, $descriptorspec, $pipes);
-            if (is_resource($process))
+            if (!is_resource($process))
                 return ['output' => '', 'error' => 'Docker 실행 실패'];
 
             $startTime = microtime(true);
