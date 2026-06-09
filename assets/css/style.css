@@ -1,3 +1,208 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@800&display=swap');
+
+:root {
+    /* 다크 테마 팔레트 */
+    --bg-primary: #0f1115;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --text-primary: #f0f6fc;
+    --text-secondary: #8b949e;
+    --text-muted: #6e7681;
+
+    /* 포인트 컬러 */
+    --accent-color: #58a6ff;
+    --accent-hover: #79c0ff;
+    --success: #2ea043;
+    --warning: #d29922;
+    --error: #f85149;
+
+    /* UI 효과 변수 */
+    --border-color: rgba(240, 246, 252, 0.1);
+    --glass-bg: rgba(22, 27, 34, 0.7);
+    --glass-blur: blur(12px);
+    --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    --shadow-sm: 0 4px 6px rgba(0,0,0,0.1);
+    --shadow-md: 0 10px 20px rgba(0,0,0,0.2);
+    --shadow-glow: 0 0 15px rgba(88, 166, 255, 0.15);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, sans-serif;
+    line-height: 1.6;
+    background-image: 
+        radial-gradient(circle at 15% 50%, rgba(88, 166, 255, 0.05), transparent 25%),
+        radial-gradient(circle at 85% 30%, rgba(46, 160, 67, 0.05), transparent 25%);
+    background-attachment: fixed;
+}
+
+a {
+    color: var(--accent-color);
+    text-decoration: none;
+    transition: var(--transition);
+}
+
+/* =========================================
+   2. 헤더 및 네비게이션
+   ========================================= */
+header {
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border-bottom: 1px solid var(--border-color);
+    height: 70px;
+    display: flex;
+    align-items: center;
+    padding: 0 40px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-right: 40px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.logo span { color: var(--accent-color); }
+
+.nav-links {
+    display: flex;
+    gap: 25px;
+}
+
+.nav-links a {
+    color: var(--text-secondary);
+    font-weight: 500;
+    position: relative;
+    padding: 5px 0;
+}
+
+.nav-links a:hover, .nav-links a.active {
+    color: var(--text-primary);
+}
+
+/* =========================================
+   3. 메인 레이아웃 및 카드(Glassmorphism)
+   ========================================= */
+.container {
+    max-width: 1200px;
+    margin: 40px auto;
+    padding: 0 20px;
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 350px 1fr;
+    gap: 30px;
+}
+
+.card {
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: var(--shadow-md);
+    transition: var(--transition);
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 15px 30px rgba(0,0,0,0.3), var(--shadow-glow);
+    border-color: rgba(88, 166, 255, 0.3);
+}
+
+.profile-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    margin: 0 auto 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+}
+
+/* 경험치(EXP) 게이지 바 */
+.exp-container { margin-top: 25px; }
+.exp-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+.exp-bar-bg {
+    width: 100%;
+    height: 8px;
+    background-color: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.exp-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #168069, #2cb396); /* 기본 플래티넘 컬러 */
+    border-radius: 4px;
+    position: relative;
+}
+
+/* =========================================
+   4. 스트릭(잔디) 및 버튼
+   ========================================= */
+.streak-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 15px;
+}
+.streak-cell {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background-color: var(--bg-tertiary);
+    transition: transform 0.2s;
+    cursor: pointer;
+}
+.streak-cell:hover { transform: scale(1.3); z-index: 10; }
+.streak-level-1 { background-color: #0e4429; }
+.streak-level-2 { background-color: #006d32; }
+.streak-level-3 { background-color: #26a641; }
+.streak-level-4 { background-color: #39d353; box-shadow: 0 0 8px rgba(57, 211, 83, 0.6); }
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: var(--transition);
+    border: none;
+    color: white;
+}
+.btn-primary { background-color: var(--accent-color); color: var(--bg-primary); }
+.btn-primary:hover { background-color: var(--accent-hover); transform: translateY(-2px); }
+
+/* =========================================
+   5. 티어 뱃지 스타일!
+   ========================================= */
+
 .tier-badge {
     display: inline-flex;
     align-items: center;
