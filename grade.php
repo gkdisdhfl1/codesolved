@@ -14,12 +14,10 @@ if ($submission_id <= 0) {
     exit;
 }
 
-// 임시파일/폴더 추적용 전역 배열 선언
-$tempFilesToCleanup = [];
-$tempDirsToCleanup = [];
-
 // 대한민국 시간(Asia/Seoul)으로 기본 시간대 일괄 설정
 date_default_timezone_set('Asia/Seoul');
+
+ignore_user_abort(true);
 
 try {
     // 로그인 세션 기반 소유권 검증
@@ -36,7 +34,7 @@ try {
 
     // 1. 제출 정보 및 문제 정보 조회
     $stmt = $pdo->prepare("
-            SELECT s.*, p.type as problem_type, p.difficulty, p.time_limit, p.memory_limit, p.answer_query
+            SELECT s.*, p.type as problem_type, p.difficulty, p.time_limit, p.memory_limit, p.answer_query, p.correct_result
             FROM submissions s
             JOIN problems p ON s.problem_id = p.id
             WHERE s.id = :id
@@ -91,7 +89,7 @@ try {
         $testCases = $tcStmt->fetchAll();
         $grader = new PythonGrader();
     } elseif ($submission['problem_type'] === 'sql') {
-        $grader = new SqlGrader();
+        $grader = new SqlGrader($pdo);
     } else {
         echo json_encode(['success' => false, 'message' => '지원하지 않는 언어입니다.']);
         exit;
@@ -102,9 +100,6 @@ try {
     $status = $result['status'];
     $max_exec_time = $result['execution_time'];
     $error_msg = $result['error'];
-
-    $tempFilesToCleanup = array_merge($tempFilesToCleanup, $result['temp_files']);
-    $tempDirsToCleanup = array_merge($tempDirsToCleanup, $result['temp_dirs']);
 
 
     // ==========================================
@@ -209,23 +204,4 @@ try {
     }
     error_log("Grading error: " . $e->getMessage());
     echo json_encode(['success' => false, 'message' => '채점 중 내부 서버 에러가 발생했습니다.']);
-} finally {
-    // 1. 단일 파일들 청소
-    foreach ($tempFilesToCleanup as $file) {
-        if (file_exists($file)) {
-            @unlink($file);
-        }
-    }
-    // 2. 디렉토리들 청소
-    foreach ($tempDirsToCleanup as $dir) {
-        if (is_dir($dir)) {
-            $files = glob("$dir/*");
-            if ($files !== false) {
-                foreach ($files as $f) {
-                    @unlink($f);
-                }
-            }
-            @rmdir($dir);
-        }
-    }
 }
