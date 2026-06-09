@@ -13,7 +13,8 @@ $stmt->execute(['id' => $problem_id]);
 $problem = $stmt->fetch();
 
 if (!$problem) {
-    echo "<script>alert('존재하지 않는 문제입니다.'); location.href='index.php';</script>";
+    $_SESSION['error_message'] = '존재하지 않는 문제입니다.';
+    header('Location: index.php');
     exit;
 }
 ?>
@@ -371,7 +372,14 @@ if (!$problem) {
                 consoleOut.innerHTML += `> <span class="status-running">채점 중 (Running)...</span><br>`;
 
                 // B. grade.php 백그라운드 비동기 호출 (실제 채점 수행)
-                const gradeRes = await fetch(`grade.php?id=${submissionId}`);
+                const gradeRes = await fetch('grade.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ id: submissionId })
+                });
+
                 if (!gradeRes.ok) {
                     consoleOut.innerHTML += `<span class="status-wrong"> ❌ 채점 중 서버 오류가 발생했습니다. (상태 코드: ${gradeRes.status})</span><br>`;
                     submitBtn.disabled = false;
