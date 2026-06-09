@@ -7,7 +7,19 @@ require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/graders/PythonGrader.php';
 require_once __DIR__ . '/includes/graders/SqlGrader.php';
 
-$submission_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405); // 405 Method Not Allowed
+    echo json_encode(['success' => false, 'message' => '허용되지 않은 요청입니다. (POST 전용)']);
+    exit;
+}
+
+$input = json_decode(file_get_contents('php://input'), true);
+if (!is_array($input)) {
+    echo json_encode(['success' => false, 'message' => '올바르지 않은 요청 형식입니다.']);
+    exit;
+}
+
+$submission_id = isset($input['id']) ? (int)$input['id'] : 0;
 
 if ($submission_id <= 0) {
     echo json_encode(['success' => false, 'message' => '올바르지 않은 제출 ID입니다.']);
