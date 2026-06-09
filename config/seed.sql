@@ -34,15 +34,17 @@ INSERT INTO test_cases (problem_id, input_data, output_data, is_sample) VALUES
 (3, '10', '3628800', 0);
 
 -- 문제 4: 영업 부서 사원 조회 (SQL, Silver IV 난이도 / 난이도 지수 9)
-INSERT INTO problems (id, title, description, input_desc, output_desc, difficulty, `type`) VALUES
+INSERT INTO problems (id, title, description, input_desc, output_desc, difficulty, `type`, answer_query) VALUES
 (4, '영업 부서 사원 조회 (SQL)', '부서(department)가 "Sales"인 사원들의 모든 컬럼(id, name, department, salary, hire_date)을 선택하되,  
   급여(salary)가 높은 사원부터 내림차순으로 정렬하여 조회하는 SQL 문을 작성하시오.',
-'SQL 문제이므로 입력값은 없으며, 사원 테이블(employees)을 조회해야 합니다.', '정답 쿼리와 조회 결과가 완벽하게 일치해야 정답 처리됩니다.', 9, 'sql');   
+'SQL 문제이므로 입력값은 없으며, 사원 테이블(employees)을 조회해야 합니다.', '정답 쿼리와 조회 결과가 완벽하게 일치해야 정답 처리됩니다.', 9, 'sql',
+'SELECT id, name, department, salary, hire_date FROM employees WHERE department = ''Sales'' ORDER BY salary DESC');   
 
 -- 문제 5: 최고 연봉 사원의 정보 (SQL, Gold II 난이도 / 난이도 지수 14)                                                                 
-INSERT INTO problems (id, title, description, input_desc, output_desc, difficulty, `type`) VALUES
+INSERT INTO problems (id, title, description, input_desc, output_desc, difficulty, `type`, answer_query) VALUES
 (5, '최고 연봉 사원의 정보 (SQL)', '회사에서 가장 높은 급여(salary)를 받는 사원의 이름(name)과 급여(salary)를 조회하는 SQL 문을 작성하시오.',
-'사원 테이블(employees)을 대상으로 서브쿼리나 정렬 제한(LIMIT)을 사용하여 해결해 보세요.', 'name, salary 컬럼의 출력 결과가 일치해야 합니다.', 14, 'sql');
+'사원 테이블(employees)을 대상으로 서브쿼리나 정렬 제한(LIMIT)을 사용하여 해결해 보세요.', 'name, salary 컬럼의 출력 결과가 일치해야 합니다.', 14, 'sql',
+'SELECT name, salary FROM employees WHERE salary = (SELECT MAX(salary) FROM employees)');
 
 -- ==========================================
 -- 2. SQL 실습용 사원 테이블 (employees) 초기 데이터
