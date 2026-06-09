@@ -4,7 +4,7 @@ require_once __DIR__ . '/GraderInterface.php';
 class PythonGrader implements GraderInterface
 {
     #[Override]
-    public function grade(array $submission, array $problem, array $testCases = []): array
+    public function grade(array $submission, array $testCases = []): array
     {
         $submission_id = $submission['id'];
         $code = $submission['code'];

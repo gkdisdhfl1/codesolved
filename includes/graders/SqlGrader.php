@@ -4,12 +4,12 @@ require_once __DIR__ . '/GraderInterface.php';
 class SqlGrader implements GraderInterface
 {
     #[Override]
-    public function grade(array $submission, array $problem, array $testCases = []): array
+    public function grade(array $submission, array $testCases = []): array
     {
         $submission_id = $submission['id'];
         $code = $submission['code'];
-        $correctSql = trim($problem['answer_query']);
-        $problem_id = $problem['id'];
+        $correctSql = trim($submission['answer_query']);
+        $problem_id = $submission['problem_id'];
         $tempDirs = [];
 
         // 1. 해당 문제용 초기화 SQL 파일 경로 확인 (예: data/sql_init/4.sql)
@@ -150,6 +150,13 @@ class SqlGrader implements GraderInterface
 
             if ($isTimeout)
                 return ['output' => '', 'error' => '시간 초과'];
+
+
+            $exitCode = isset($statusArr['exitcode']) ? $statusArr['exitcode'] : 0;
+            if ($exitCode !== 0 && empty($error)) {
+                $error = "Exit code: " . $exitCode;
+            }
+
             return ['output' => $output, 'error' => $error];
         };
 

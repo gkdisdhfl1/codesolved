@@ -7,6 +7,6 @@
         * @param array $testCases 테스트 케이스 (필요 시)
         * @return array [ 'status', 'execution_time', 'error', 'temp_files', 'temp_dirs' ]
         */
-        public function grade(array $submission, array $problem, array $testCases = []): array;
+        public function grade(array $submission, array $testCases = []): array;
     }
 ?>

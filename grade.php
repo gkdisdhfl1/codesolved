@@ -97,7 +97,7 @@ try {
         exit;
     }
 
-    $result = $grader->grade($submission, $submission, $testCases);
+    $result = $grader->grade($submission, $testCases);
 
     $status = $result['status'];
     $max_exec_time = $result['execution_time'];
@@ -191,10 +191,10 @@ try {
                 'uid' => $user_id
             ]);
         }
+        // 3. 모든 작업이 정상적으로 완료되면 DB 확정
+        $pdo->commit();
     }
 
-    // 3. 모든 작업이 정상적으로 완료되면 DB 확정
-    $pdo->commit();
 
     echo json_encode([
         'success' => true,
