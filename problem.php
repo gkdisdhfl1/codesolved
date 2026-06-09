@@ -276,9 +276,11 @@ if (!$problem) {
                 defaultCode = "-- 여기에 쿼리를 작성하세요\n\nSELECT *\nFROM 테이블명;\n";
             }
 
+            const editorLang = langMap[currentLang] || 'plaintext';
+
             editor = monaco.editor.create(document.getElementById('monaco-editor'), {
                 value: defaultCode,
-                language: langMap[currentLang],
+                language: editorLang,
                 theme: 'vs-dark', // 고급스러운 VS Code 다크 테마 적용
                 fontSize: 16,
                 fontFamily: "'Consolas', 'Courier New', monospace",
@@ -335,9 +337,13 @@ if (!$problem) {
                     })
                 });
 
-                // HTTP 상태 코드가 401(권한없음)인 경우
-                if (submitRes.status === 401) {
-                    consoleOut.innerHTML += `<span class="status-wrong">❌ 로그인이 필요한 서비스입니다. 대시보드에서 로그인해주세요.</span><br>`;
+                if (!submitRes.ok) {
+                    if (submitRes.status === 401) {
+                        consoleOut.innerHTML += `<span class="status-wrong">❌ 로그인이 필요한 서비스입니다. 대시보드에서 로그인해주세요.</span><br>`;
+                    } else {
+                        consoleOut.innerHTML += `<span class="status-wrong">❌ 서버 오류가 발생했습니다. (상태 코드: ${submitRes.status}).</span><br>`;
+                    }
+
                     submitBtn.disabled = false;
                     submitBtn.innerText = "제출하기 (Submit)";
                     return;
@@ -356,7 +362,7 @@ if (!$problem) {
                     return;
                 }
 
-                const submissionId = submitData.submission_id;
+                const submissionId = parseInt(submitData.submission_id, 10);
                 consoleOut.innerHTML += `> 제출 완료! (ID: ${submissionId})<br>`;
                 consoleOut.innerHTML += `> <span class="status-pending">대기 중...</span><br>`;
 
@@ -366,6 +372,12 @@ if (!$problem) {
 
                 // B. grade.php 백그라운드 비동기 호출 (실제 채점 수행)
                 const gradeRes = await fetch(`grade.php?id=${submissionId}`);
+                if (!gradeRes.ok) {
+                    consoleOut.innerHTML += `<span class="status-wrong"> ❌ 채점 중 서버 오류가 발생했습니다. (상태 코드: ${gradeRes.status})</span><br>`;
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = "제출하기 (Submit)";
+                    return;
+                }
                 const gradeData = await gradeRes.json();
 
                 if (!gradeData.success) {
@@ -378,8 +390,17 @@ if (!$problem) {
                     const isAccepted = gradeData.status === '맞았습니다' || gradeData.status === '맞았습니다!!' || gradeData.status === '정답';
                     const statusClass = isAccepted ? 'status-accepted' : 'status-wrong';
 
-                    consoleOut.innerHTML += `> 채점 완료! [실행 시간: ${gradeData.execution_time}ms]<br>`;
-                    consoleOut.innerHTML += `> 최종 결과: <span class="${statusClass}">${gradeData.status}</span><br>`;
+                    const execTime = parseInt(gradeData.execution_time, 10) || 0;
+                    consoleOut.innerHTML += `채점 완료! [실행 시간: ${execTime}ms]<br>`;
+
+                    const resultText = document.createTextNode('> 최종 결과: ');
+                    const statusSpan = document.createElement('span');
+                    statusSpan.className = statusClass;
+                    statusSpan.textContent = gradeData.status;
+
+                    consoleOut.appendChild(resultText);
+                    consoleOut.appendChild(statusSpan);
+                    consoleOut.appendChild(document.createElement('br'));
 
                     if (gradeData.error) {
                         consoleOut.appendChild(document.createElement('br'));
