@@ -25,6 +25,9 @@ if (!$problem) {
     <title><?php echo htmlspecialchars($problem['title']); ?> - CodeSolved</title>
 
     <!-- 공통 디자인 시스템 CSS -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
 
     <!-- 본 페이지 전용 IDE 레이아웃 CSS -->
@@ -201,9 +204,9 @@ if (!$problem) {
                 <?php echo $problem['id'] . ". " . htmlspecialchars($problem['title']); ?>
             </h1>
             <div class="problem-meta">
-                <span>⏱️ 시간 제한: <?php echo $problem['time_limit']; ?>초</span>
-                <span>💾 메모리 제한: <?php echo $problem['memory_limit']; ?>MB</span>
-                <span>🔥 난이도: <?php echo $problem['difficulty']; ?></span>
+                <span>⏱️ 시간 제한: <?php echo htmlspecialchars($problem['time_limit']); ?>초</span>
+                <span>💾 메모리 제한: <?php echo htmlspecialchars($problem['memory_limit']); ?>MB</span>
+                <span>🔥 난이도: <?php echo htmlspecialchars($problem['difficulty']); ?></span>
             </div>
 
             <div class="section-title">문제</div>
@@ -335,7 +338,11 @@ if (!$problem) {
                 const submitData = await submitRes.json();
 
                 if (!submitData.success) {
-                    consoleOut.innerHTML += `<span class="status-wrong">❌ 제출 실패: ${submitData.message}</span><br>`;
+                    const span = document.createElement('span');
+                    span.className = 'status-wrong';
+                    span.textContent = `❌ 제출 실패: ${submitData.message}`;  
+                    consoleOut.appendChild(span);
+                    consoleOut.appendChild(document.createElement('br'));
                     submitBtn.disabled = false;
                     submitBtn.innerText = "제출하기 (Submit)";
                     return;
@@ -354,7 +361,11 @@ if (!$problem) {
                 const gradeData = await gradeRes.json();
 
                 if (!gradeData.success) {
-                    consoleOut.innerHTML += `<span class="status-wrong">❌ 시스템 에러: ${gradeData.message}</span><br>`;
+                    const span = document.createElement('span');
+                    span.className = 'status-wrong';
+                    span.textContent = `❌ 시스템 에러: ${gradeData.message}`;  
+                    consoleOut.appendChild(span);
+                    consoleOut.appendChild(document.createElement('br'));
                 } else {
                     const isAccepted = gradeData.status === '맞았습니다' || gradeData.status === '맞았습니다!!' || gradeData.status === '정답';
                     const statusClass = isAccepted ? 'status-accepted' : 'status-wrong';
@@ -363,7 +374,16 @@ if (!$problem) {
                     consoleOut.innerHTML += `> 최종 결과: <span class="${statusClass}">${gradeData.status}</span><br>`;
 
                     if (gradeData.error) {
-                        consoleOut.innerHTML += `<br>[상세 오류 로그]<br><pre style="color: var(--error); margin-top: 5px; font-size: 0.9rem;">${gradeData.error}</pre>`;
+                        consoleOut.appendChild(document.createElement('br'));
+                        const errorLabel = document.createTextNode('[상세 오류 로그]');
+                        consoleOut.appendChild(errorLabel);
+
+                        const pre = document.createElement('pre');
+                        pre.style.color = 'var(--error)';
+                        pre.style.marginTop = '5px';
+                        pre.style.fontSize = '0.9rem';
+                        pre.textContent = gradeData.error; // 태그를 문자로 치환
+                        consoleOut.appendChild(pre);
                     }
                 }
             } catch (err) {
