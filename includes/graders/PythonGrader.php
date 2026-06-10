@@ -37,10 +37,14 @@ class PythonGrader implements GraderInterface
                 $input = $tc['input_data'];
                 $expectedOutput = trim($tc['output_data']);
 
+                // 파이프 데드락 방지: stdout과 stderr를 임시 파일로 직접 저장
+                $outFile = $tempDir . "/out_" . $submission_id . "_" . bin2hex(random_bytes(4)) . ".log";
+                $errFile = $tempDir . "/err_" . $submission_id . "_" . bin2hex(random_bytes(4)) . ".log";
+                $tempFiles[] = $outFile;
+                $tempFiles[] = $errFile;
+
                 $descriptorspec = [
-                    0 => ["pipe", "r"], // stdin
-                    1 => ["pipe", "w"], // stdout
-                    2 => ["pipe", "w"], // stderr
+                    0 => ["pipe", "r"], // stdin만 파이프로 유지
                 ];
 
                 // Docker 컨테이너로 유저 코드 격리 실행
@@ -57,11 +61,12 @@ class PythonGrader implements GraderInterface
                         '--cpus="1.0" ' .
                         '-v "%s:/sandbox:ro" ' .
                         'python:3.9-alpine ' .
-                        'python /sandbox/%s',
+                        'sh -c "python /sandbox/%s 2>&1 | head -c 1048576" > "%s"',
                     $containerName,
                     $memLimit,
                     $tempDirDocker,
-                    "temp_" . $submission_id . ".py"
+                    "temp_" . $submission_id . ".py",
+                    $outFile
                 );
 
                 // proc_open으로 도커 프로세스 실행
@@ -84,39 +89,21 @@ class PythonGrader implements GraderInterface
                 $timeout = ($submission['time_limit'] ? (float)$submission['time_limit'] : 2.0) + 1.0;
                 $isTimeout = false;
                 $isOLE = false;
-
-                stream_set_blocking($pipes[1], 0);
-                stream_set_blocking($pipes[2], 0);
-
-                $output = '';
-                $error = '';
                 $maxBytes = 1048576;
 
                 while (true) {
-                    // 1. 데드락 방지: 루프를 돌 때마다 파이프 버퍼를 지속적으로 퍼내기
-                    $outChunk = stream_get_contents($pipes[1]);
-                    if ($outChunk !== false && $outChunk !== '') {
-                        $output .= $outChunk;
-                        if (strlen($output) > $maxBytes) {
-                            proc_terminate($process);
-                            shell_exec("docker kill " . escapeshellarg($containerName) . " >/dev/null 2>&1");
-                            $isOLE = true;
-                            break;
-                        }
+                    clearstatcache();
+                    // 파일의 실시간 용량을 확인하여 출력 크기 초과 모니터링
+                    $outSize = file_exists($outFile) ? filesize($outFile) : 0;
+                    $errSize = file_exists($errFile) ? filesize($errFile) : 0;
+
+                    if ($outSize > $maxBytes || $errSize > $maxBytes) {
+                        $isOLE = true;
+                        proc_terminate($process);
+                        shell_exec("docker kill " . escapeshellarg($containerName) . " >/dev/null 2>&1");
+                        break;
                     }
 
-                    $errChunk = stream_get_contents($pipes[2]);
-                    if ($errChunk !== false && $errChunk !== '') {
-                        $error .= $errChunk;
-                        if (strlen($error) > $maxBytes) {
-                            proc_terminate($process);
-                            shell_exec("docker kill " . escapeshellarg($containerName) . " >/dev/null 2>&1");
-                            $isOLE = true;
-                            break;
-                        }
-                    }
-
-                    // 2. 프로세스 상태 확인
                     $statusArr = proc_get_status($process);
                     $runningTime = microtime(true) - $startTime;
 
@@ -124,24 +111,22 @@ class PythonGrader implements GraderInterface
                         break;
                     }
                     if ($runningTime > $timeout) {
-                        // 타임아웃 시 도커 프로세스 강제 종료
-                        proc_terminate($process);
-                        // 백그라운드의 실제 Docker 데몬 컨테이너를 명시적으로 kill
-                        shell_exec("docker kill " . escapeshellarg($containerName) . " >/dev/null 2>&1");
-
                         $isTimeout = true;
+                        proc_terminate($process);
+                        shell_exec("docker kill " . escapeshellarg($containerName) . " >/dev/null 2>&1");
                         break;
                     }
                     usleep(10000);
                 }
 
-                // 3. 루프 종료 후 찰나의 순간에 버퍼에 남은 잔여 데이터 최종 수거
-                $outChunk = stream_get_contents($pipes[1]);
-                if ($outChunk !== false)
-                    $output .= $outChunk;
-                $errChunk = stream_get_contents($pipes[2]);
-                if ($errChunk !== false)
-                    $error .= $errChunk;
+                proc_close($process);
+
+                // OS 파일에서 결과를 안전하게 읽어오기
+                $output = file_exists($outFile) ? file_get_contents($outFile) : '';
+                $error = file_exists($errFile) ? file_get_contents($errFile) : '';
+
+                // head -c 1048576 에 의해 정확히 1MB(또는 그 언저리)에서 잘렸다면 무한 출력으로 간주
+                $isOLE = (strlen($output) >= 1000000); 
 
                 // 최종 OOM 방지 및 공백 제거
                 if (strlen($output) > $maxBytes)
@@ -152,20 +137,17 @@ class PythonGrader implements GraderInterface
                 $output = trim($output);
                 $error = trim($error);
 
-                fclose($pipes[1]);
-                fclose($pipes[2]);
-                proc_close($process);
-
                 // 실행 시간 계산
                 $exec_duration = (int)((microtime(true) - $startTime) * 1000);
                 $max_exec_time = max($max_exec_time, $exec_duration);
 
                 // 리소스 회수를 먼저 완료한 뒤에 타임아웃 예외를 처리
+                // 출력 폭주($isOLE)는 무한 루프(시간 초과)로 간주
                 if ($isOLE) {
-                    $status = '런타임 에러';
-                    $error_msg = '출력 크기 초과';
+                    $status = '시간 초과';
+                    $error_msg = null;
                     break;
-                }
+                }   
                 if ($isTimeout) {
                     $status = '시간 초과';
                     break;
@@ -190,6 +172,17 @@ class PythonGrader implements GraderInterface
                 'temp_files' => $tempFiles,
             ];
         } finally {
+            $scratchDir = dirname(__DIR__, 2) . '/scratch';
+            if (is_dir($scratchDir)) {
+                $now = time();
+                foreach (glob($scratchDir . '/*') as $f) {
+                    if (is_file($f) && ($now - filemtime($f)) > 300) @unlink($f);
+                    if (is_dir($f) && ($now - filemtime($f)) > 300) {
+                        foreach (glob("$f/*") as $sub) @unlink($sub);
+                        @rmdir($f);
+                    }
+                }
+            }
             foreach ($tempFiles as $file) {
                 if (file_exists($file)) {
                     @unlink($file);
