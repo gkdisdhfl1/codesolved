@@ -49,11 +49,11 @@
         // 일반 티어 설정 구간 정의 (400점 단위)
         $tiers = [
             ['name' => 'Iron',       'class' => 'tier-iron',     'color' => '#5c6370', 'min' => 100],
-            ['name' => 'Bronze',     'class' => 'tier-bronze',   'color' => '#a0522d', 'min' => 100],
-            ['name' => 'Silver',     'class' => 'tier-silver',   'color' => '#a8b4c4', 'min' => 100],
-            ['name' => 'Gold',       'class' => 'tier-gold',     'color' => '#e5b83b', 'min' => 100],
-            ['name' => 'Platinum',   'class' => 'tier-platinum', 'color' => '#2cb396', 'min' => 100],
-            ['name' => 'Diamond',    'class' => 'tier-diamond',  'color' => '#57a3e4', 'min' => 100],
+            ['name' => 'Bronze',     'class' => 'tier-bronze',   'color' => '#a0522d', 'min' => 500],
+            ['name' => 'Silver',     'class' => 'tier-silver',   'color' => '#a8b4c4', 'min' => 900],
+            ['name' => 'Gold',       'class' => 'tier-gold',     'color' => '#e5b83b', 'min' => 1300],
+            ['name' => 'Platinum',   'class' => 'tier-platinum', 'color' => '#2cb396', 'min' => 1700],
+            ['name' => 'Diamond',    'class' => 'tier-diamond',  'color' => '#57a3e4', 'min' => 2100],
         ];
 
         $currentTierIndex = 0;
