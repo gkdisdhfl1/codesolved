@@ -24,7 +24,9 @@ $userStmt->execute(['id' => $user_id]);
 $user = $userStmt->fetch();
 
 if (!$user) {
-    die("사용자 정보를 찾을 수 없습니다.");
+    session_destroy();
+    header("Location: auth/login.php");
+    exit;
 }
 
 $rating = (int)$user['rating'];
@@ -67,14 +69,18 @@ $problems = $probStmt->fetchAll();
 $streakData = array_fill(0, 30, 0);
 
 // 오늘 기준으로 과거 29일까지 (총 30일) 일별 푼 문제 개수 집계
+$startDate = date('Y-m-d', strtotime('-29 days'));
 $streakStmt = $pdo->prepare("
     SELECT DATE(solved_at) as solve_date, COUNT(*) as daily_count
     FROM solved_problems
     WHERE user_id = :uid
-        AND solved_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
+        AND solved_at >= :start_date
     GROUP BY DATE(solved_at)
 ");
-$streakStmt->execute(['uid' => $user_id]);
+$streakStmt->execute([
+    'uid' => $user_id,
+    'start_date' => $startDate
+]);
 $dailySolves = $streakStmt->fetchAll(PDO::FETCH_ASSOC);
 
 

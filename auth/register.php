@@ -17,28 +17,38 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     if (empty($username) || empty($password)) {
         $error = '모든 필드를 입력해주세요.';
+    } elseif (mb_strlen($username) > 50) {
+        $error = '아이디는 최대 50자 이하이어야 합니다.';
     } elseif ($password !== $password_confirm) {
         $error = '비밀번호가 일치하지 않습니다.';
     } elseif (strlen($password) < 8) {
         $error = '비밀번호는 최소 8자 이상이어야 합니다.';
     } else {
-        // 중복 검사
-        $stmt = $pdo->prepare("SELECT id FROM users WHERE username = :username");
-        $stmt->execute(['username' => $username]);
-        if ($stmt->fetch()) {
-            $error = '이미 존재하는 아이디입니다.';
-        } else {
-            // 회원가입 처리
-            $hash = password_hash($password, PASSWORD_DEFAULT);
-            $insertStmt = $pdo->prepare("INSERT INTO users (username, password_hash) VALUES (:username, :hash)");
-            if ($insertStmt->execute(['username' => $username, 'hash' => $hash])) {
-                session_regenerate_id(true);
-                $_SESSION['user_id'] = $pdo->lastInsertId();
-                $_SESSION['username'] = $username;
-                header("Location: ../index.php");
-                exit;
+        try {
+            // 중복 검사
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE username = :username");
+            $stmt->execute(['username' => $username]);
+            if ($stmt->fetch()) {
+                $error = '이미 존재하는 아이디입니다.';
             } else {
-                $error = '회원가입 중 서버 에러가 발생했습니다.';
+                // 회원가입 처리
+                $hash = password_hash($password, PASSWORD_DEFAULT);
+                $insertStmt = $pdo->prepare("INSERT INTO users (username, password_hash) VALUES (:username, :hash)");
+                if ($insertStmt->execute(['username' => $username, 'hash' => $hash])) {
+                    session_regenerate_id(true);
+                    $_SESSION['user_id'] = $pdo->lastInsertId();
+                    $_SESSION['username'] = $username;
+                    header("Location: ../index.php");
+                    exit;
+                } else {
+                    $error = '회원가입 중 서버 에러가 발생했습니다.';
+                }
+            }
+        } catch (\PDOException $e) {
+            if ($e->getCode() == 23000) {
+                $error = '이미 존재하는 아이디입니다.';
+            } else {
+                $error = '회원가입 중 데이터베이스 에러가 발생했습니다.';
             }
         }
     }
