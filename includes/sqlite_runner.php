@@ -13,7 +13,7 @@
 
     try {
         // 1. 파일 I/O가 없는 초고속 인메모리 DB 생성
-        $pdo = new PDO('sqlite::memory', null, null, [
+        $pdo = new PDO('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
         ]);

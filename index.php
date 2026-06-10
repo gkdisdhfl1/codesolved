@@ -4,10 +4,11 @@ session_start();
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/tier_helper.php';
 
-// 임시 백도어] 로그인 시스템 개발 전 테스트용 자동 로그인
+date_default_timezone_set('Asia/Seoul');
+
 if (!isset($_SESSION['user_id'])) {
-    $_SESSION['user_id'] = 1;
-    $_SESSION['username'] = 'admin';
+    header("Location: auth/login.php");
+    exit;
 }
 
 $user_id = $_SESSION['user_id'];
@@ -63,11 +64,42 @@ $probStmt->execute(['uid' => $user_id]);
 $problems = $probStmt->fetchAll();
 
 // 4. 잔디(스트릭) 시각화용 데이터
-// 시각적 예시용으로 30칸 생성
-$dummyStreak = array_fill(0, 30, 0);
-for ($i = 0; $i < $streak && $i < 30; $i++) {
-    // 1~4 사이의 랜덤 잔디 진하기 (실제로는 그날 푼 문제 수 비례)
-    $dummyStreak[29 - $i] = rand(1, 4);
+$streakData = array_fill(0, 30, 0);
+
+// 오늘 기준으로 과거 29일까지 (총 30일) 일별 푼 문제 개수 집계
+$streakStmt = $pdo->prepare("
+    SELECT DATE(solved_at) as solve_date, COUNT(*) as daily_count
+    FROM solved_problems
+    WHERE user_id = :uid
+        AND solved_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
+    GROUP BY DATE(solved_at)
+");
+$streakStmt->execute(['uid' => $user_id]);
+$dailySolves = $streakStmt->fetchAll(PDO::FETCH_ASSOC);
+
+
+// 날짜를 키로 하는 연관 배열 생성
+$solveMap = [];
+foreach ($dailySolves as $row) {
+    $solveMap[$row['solve_date']] = (int)$row['daily_count'];
+}
+
+// 29일 전부터 오늘 (0)까지 역순화하며 배열에 색상 레벨 할당
+for ($i = 29; $i >= 0; $i--) {
+    $dateStr = date('Y-m-d', strtotime("-$i days"));
+    $count = isset($solveMap[$dateStr]) ? $solveMap[$dateStr] : 0;
+
+    // 문제 푼 개수에 따른 잔디 진하기 레벨 (0~4)
+    $level = 0;
+    if ($count > 0) {
+        if ($count == 1) $level = 1;
+        elseif ($count <= 3) $level = 2;
+        elseif ($count <= 5) $level = 3;
+        else $level = 4;
+    }
+
+    // 배열 인덳는 앞쪽(0)이 과거, 뒤쪽(29)이 최신(오늘)
+    $streakData[29 - $i] = $level;
 }
 ?>
 
@@ -184,6 +216,7 @@ for ($i = 0; $i < $streak && $i < 30; $i++) {
         <div class="nav-links">
             <a href="index.php" class="active">대시보드</a>
             <a href="problem.php">문제 풀이</a>
+            <a href="auth/logout.php" style="color: var(--error);">로그아웃</a>
         </div>
     </header>
 
@@ -243,7 +276,7 @@ for ($i = 0; $i < $streak && $i < 30; $i++) {
                 <div style="margin-top: 25px; text-align: left;">
                     <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px;">최근 30일 활동 내역</div>
                     <div class="streak-grid">
-                        <?php foreach ($dummyStreak as $level): ?>
+                        <?php foreach ($streakData as $level): ?>
                             <div class="streak-cell <?php echo htmlspecialchars($level > 0 ? 'streak-level-' . $level : ''); ?>" title="스트릭 레벨 <?php echo htmlspecialchars($level); ?>"></div>
                         <?php endforeach; ?>
                     </div>

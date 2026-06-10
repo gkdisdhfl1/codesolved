@@ -88,12 +88,3 @@ CREATE TABLE comments (
     Foreign Key (discussion_id) REFERENCES discussions(id) ON DELETE CASCADE,
     Foreign Key (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
-
--- 9. [SQL 샌드박스용 테이블] 사원 테이블
-CREATE TABLE employees (
-    id INT PRIMARY KEY,
-    name VARCHAR(50) NOT NULL,
-    department VARCHAR(50) NOT NULL,
-    salary INT NOT NULL,
-    hire_date DATE NOT NULL
-);
