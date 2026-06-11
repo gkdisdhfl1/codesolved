@@ -57,15 +57,16 @@ class SqlGrader implements GraderInterface
             $max_exec_time = 0;
 
             // 5. 안전한 Docker SQLite3 실행 헬퍼 함수
-            $executeInDocker = function ($queryFile, $timeLimit) use ($tempSqlDirDocker, $submission_id, $submission) {
-                $descriptorspec = [
-                    1 => ["pipe", "w"], // stdout
-                    2 => ["pipe", "w"]  // stderr
-                ];
+            $executeInDocker = function ($queryFile, $timeLimit) use ($tempSqlDirDocker, $submission_id, $submission, $tempSqlDir) {
+                // stdin만 파이프로 넘기고 stdout/stderr는 파일로 리다이렉션
+                $descriptorspec = [0 => ["pipe", "r"],];
 
                 // SQL 컨테이너에도 고유한 이름 부여
                 $containerName = "sandbox_sql_" . $submission_id . "_" . bin2hex(random_bytes(4));
                 $memLimit = $submission['memory_limit'] ? max(16, (int)$submission['memory_limit']) : 128;
+
+                $outFile = $tempSqlDir . "/out_" . bin2hex(random_bytes(4)) . ".log";
+                $errFile = $tempSqlDir . "/err_" . bin2hex(random_bytes(4)) . ".log";
 
                 $dockerCmd = sprintf(
                     'docker run --rm -i ' .
@@ -76,51 +77,37 @@ class SqlGrader implements GraderInterface
                         '--cpus="1.0" ' .
                         '-v "%s:/sandbox:ro" ' .
                         'php:8-cli-alpine ' .
-                        'php /sandbox/sqlite_runner.php "%s"',
+                        'sh -c "php /sandbox/sqlite_runner.php %s 2>&1 | head -c 1048576" > "%s"',
                     $containerName,
                     $memLimit,
                     $tempSqlDirDocker,
-                    $queryFile
+                    $queryFile,
+                    $outFile
                 );
 
                 $process = proc_open($dockerCmd, $descriptorspec, $pipes);
                 if (!is_resource($process))
                     return ['output' => '', 'error' => 'Docker 실행 실패'];
 
+                fclose($pipes[0]);
+
                 $startTime = microtime(true);
                 $timeout = ($timeLimit ? (float)$timeLimit : 2.0) + 1.0;
                 $isTimeout = false;
                 $isOLE = false;
-
-                // 논블로킹 모드 전환
-                stream_set_blocking($pipes[1], 0);
-                stream_set_blocking($pipes[2], 0);
-
-                $output = '';
-                $error = '';
                 $maxBytes = 1048576;
 
                 while (true) {
-                    $outChunk = stream_get_contents($pipes[1]);
-                    if ($outChunk !== false && $outChunk !== '') {
-                        $output .= $outChunk;
-                        if (strlen($output) > $maxBytes) {
-                            proc_terminate($process);
-                            shell_exec("docker kill " . escapeshellarg($containerName) . " >/dev/null 2>&1");
-                            $isOLE = true;
-                            break;
-                        }
-                    }
+                    clearstatcache();
+                    // 파일 용량 실시간 감시
+                    $outSize = file_exists($outFile) ? filesize($outFile) : 0;
+                    $errSize = file_exists($errFile) ? filesize($errFile) : 0;
 
-                    $errChunk = stream_get_contents($pipes[2]);
-                    if ($errChunk !== false && $errChunk !== '') {
-                        $error .= $errChunk;
-                        if (strlen($error) > $maxBytes) {
-                            proc_terminate($process);
-                            shell_exec("docker kill " . escapeshellarg($containerName) . " >/dev/null 2>&1");
-                            $isOLE = true;
-                            break;
-                        }
+                    if ($outSize > $maxBytes || $errSize > $maxBytes) {
+                        proc_terminate($process);
+                        shell_exec("docker kill" . escapeshellarg($containerName) . " >/dev/null 2>&1");
+                        $isOLE = true;
+                        break;
                     }
 
                     $statusArr = proc_get_status($process);
@@ -128,24 +115,20 @@ class SqlGrader implements GraderInterface
 
                     if (!$statusArr['running'])
                         break;
-
                     if ($runningTime > $timeout) {
                         proc_terminate($process);
-                        // SQL Docker 컨테이너 실제 kill
-                        shell_exec("docker kill " . escapeshellarg($containerName) . " >/dev/null 2>&1");
-                        $isTimeout = true;
+                        shell_exec("docker kill" . escapeshellarg($containerName) . " >/dev/null 2>&1");
+                        $isOLE = true;
                         break;
                     }
                     usleep(10000);
                 }
+                proc_close($process);
 
-                // 잔여 버퍼 최종 수거
-                $outChunk = stream_get_contents($pipes[1]);
-                if ($outChunk !== false)
-                    $output .= $outChunk;
-                $errChunk = stream_get_contents($pipes[2]);
-                if ($errChunk !== false)
-                    $error .= $errChunk;
+                $output = file_exists($outFile) ? file_get_contents($outFile) : '';
+                $error = file_exists($errFile) ? file_get_contents($errFile) : '';
+
+                $isOLE = (strlen($output) >= 1000000); 
 
                 // 최종 OOM 방지 및 공백 제거
                 if (strlen($output) > $maxBytes)
@@ -156,13 +139,9 @@ class SqlGrader implements GraderInterface
                 $output = trim($output);
                 $error = trim($error);
 
-                fclose($pipes[1]);
-                fclose($pipes[2]);
-                proc_close($process);
-
-                if ($isOLE)
-                    return ['output' => '', 'error' => '출력 크기 초과'];
-
+                if ($isOLE) {
+                    return ['output' => '', 'error' => '출력 초과'];
+                }
                 if ($isTimeout)
                     return ['output' => '', 'error' => '시간 초과'];
 
@@ -207,12 +186,19 @@ class SqlGrader implements GraderInterface
             $exec_duration = (int)((microtime(true) - $startTime) * 1000);
             $max_exec_time = max($max_exec_time, $exec_duration);
 
-            if (!empty($userRes['error']))
+            if (!empty($userRes['error'])) {
+                $status = '런타임 에러';
+                if (trim($userRes['error']) === '출력 초과') {
+                    $status = '출력 초과';
+                } elseif (trim($userRes['error']) === '시간 초과') {
+                    $status = '시간 초과';
+                }
                 return [
-                    'status' => '런타임 에러',
+                    'status' => $status,
                     'execution_time' => $max_exec_time,
                     'error' => trim($userRes['error']),
                 ];
+            }
 
             $correctArray = json_decode($correctResultJson, true);
             $correctJsonError = json_last_error();
@@ -244,6 +230,18 @@ class SqlGrader implements GraderInterface
                 'error' => null,
             ];
         } finally {
+            $scratchDir = dirname(__DIR__, 2) . '/scratch';
+            if (is_dir($scratchDir)) {
+                $now = time();
+                foreach (glob($scratchDir . '/*') as $f) {
+                    if (is_file($f) && ($now - filemtime($f)) > 300) @unlink($f);
+                    if (is_dir($f) && ($now - filemtime($f)) > 300) {
+                        foreach (glob("$f/*") as $sub) @unlink($sub);
+                        @rmdir($f);
+                    }
+                }
+            }
+
             foreach ($tempDirs as $dir) {
                 if (is_dir($dir)) {
                     $files = glob("$dir/*");
