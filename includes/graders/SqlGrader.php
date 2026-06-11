@@ -140,7 +140,7 @@ class SqlGrader implements GraderInterface
                 $error = trim($error);
 
                 if ($isOLE) {
-                    return ['output' => '', 'error' => '시간 초과'];
+                    return ['output' => '', 'error' => '출력 초과'];
                 }
                 if ($isTimeout)
                     return ['output' => '', 'error' => '시간 초과'];
@@ -186,12 +186,19 @@ class SqlGrader implements GraderInterface
             $exec_duration = (int)((microtime(true) - $startTime) * 1000);
             $max_exec_time = max($max_exec_time, $exec_duration);
 
-            if (!empty($userRes['error']))
+            if (!empty($userRes['error'])) {
+                $status = '런타임 에러';
+                if (trim($userRes['error']) === '출력 초과') {
+                    $status = '출력 초과';
+                } elseif (trim($userRes['error']) === '시간 초과') {
+                    $status = '시간 초과';
+                }
                 return [
-                    'status' => '런타임 에러',
+                    'status' => $status,
                     'execution_time' => $max_exec_time,
                     'error' => trim($userRes['error']),
                 ];
+            }
 
             $correctArray = json_decode($correctResultJson, true);
             $correctJsonError = json_last_error();

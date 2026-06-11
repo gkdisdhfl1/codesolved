@@ -141,11 +141,10 @@ class PythonGrader implements GraderInterface
                 $exec_duration = (int)((microtime(true) - $startTime) * 1000);
                 $max_exec_time = max($max_exec_time, $exec_duration);
 
-                // 리소스 회수를 먼저 완료한 뒤에 타임아웃 예외를 처리
-                // 출력 폭주($isOLE)는 무한 루프(시간 초과)로 간주
+                // 출력 폭주($isOLE) 처리
                 if ($isOLE) {
-                    $status = '시간 초과';
-                    $error_msg = null;
+                    $status = '출력 초과';
+                    $error_msg = '1MB 이상의 너무 많은 출력이 발생했습니다.';
                     break;
                 }   
                 if ($isTimeout) {

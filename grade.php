@@ -124,6 +124,8 @@ try {
         $finalStatus = '시간 초과';
     elseif ($status === '런타임 에러')
         $finalStatus = '런타임 에러';
+    elseif ($status === '출력 초과')
+        $finalStatus = '출력 초과';
 
     // 1. 제출 상태 업데이트는 즉시 반영 (트랜잭션 밖에서 실행)
     $saveStmt = $pdo->prepare("
